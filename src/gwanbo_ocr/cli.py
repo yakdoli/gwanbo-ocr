@@ -11,10 +11,12 @@ app = typer.Typer(help="PDF OCR and metadata extraction pipeline for Gwanbo arti
 manifest_app = typer.Typer(help="Build immutable PDF manifests from source artifacts.")
 pdf_app = typer.Typer(help="Classify PDFs, extract text layouts, and render pages.")
 bench_app = typer.Typer(help="Run and score OCR/VLM benchmarks.")
+peer_app = typer.Typer(help="Multi-method peer review: compare native text, pdfplumber, MarkItDown, PaddleOCR, VLM.")
 
 app.add_typer(manifest_app, name="manifest")
 app.add_typer(pdf_app, name="pdf")
 app.add_typer(bench_app, name="bench")
+app.add_typer(peer_app, name="peer")
 
 
 @manifest_app.command("build")
@@ -165,6 +167,94 @@ def bench_score(
 
     summary = score_benchmark(run_dir=run, output_dir=output)
     _echo_summary(summary)
+
+
+@peer_app.command("run")
+def peer_run(
+    manifest: Path = typer.Option(..., "--manifest", help="Input JSONL manifest (from manifest build)."),
+    output: Path = typer.Option(..., help="Output directory for peer-review sidecars and index."),
+    vlm_base_url: str | None = typer.Option(None, "--vlm-base-url", help="OpenAI-compatible VLM base URL (enables VLM peer)."),
+    vlm_model: str | None = typer.Option(None, "--vlm-model", help="Model name/alias for the VLM runner."),
+    vlm_api_key: str = typer.Option("dummy", "--vlm-api-key", help="API key for the VLM endpoint."),
+    run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
+    skip_markitdown: bool = typer.Option(False, "--skip-markitdown", help="Skip MarkItDown peer."),
+    skip_pdfplumber: bool = typer.Option(False, "--skip-pdfplumber", help="Skip pdfplumber peer."),
+    skip_native: bool = typer.Option(False, "--skip-native", help="Skip native text extraction peer."),
+    max_pages: int = typer.Option(1, help="Pages to process per PDF; 0 means all."),
+    dpi: int = typer.Option(200, help="Render DPI for image-based OCR peers."),
+    workers: int = typer.Option(1, help="Parallel worker count."),
+    limit: int | None = typer.Option(None, help="Maximum rows to process."),
+    force: bool = typer.Option(False, help="Regenerate existing sidecars."),
+    timeout: int = typer.Option(60, "--timeout", help="Per-method timeout in seconds."),
+    progress_every: int = typer.Option(0, help="Log progress every N items."),
+) -> None:
+    """Run multi-method peer review on a PDF manifest."""
+    from gwanbo_ocr.peer_review import run_peer_review_manifest
+
+    summary = run_peer_review_manifest(
+        manifest_path=manifest,
+        output_dir=output,
+        vlm_base_url=vlm_base_url,
+        vlm_model=vlm_model,
+        vlm_api_key=vlm_api_key,
+        run_paddle=run_paddle,
+        run_markitdown=not skip_markitdown,
+        run_pdfplumber=not skip_pdfplumber,
+        run_native_text=not skip_native,
+        max_pages=None if max_pages == 0 else max_pages,
+        dpi=dpi,
+        workers=workers,
+        limit=limit,
+        force=force,
+        timeout_seconds=timeout,
+        progress_every=progress_every,
+    )
+    _echo_summary(summary)
+
+
+@peer_app.command("score")
+def peer_score(
+    review_dir: Path = typer.Option(..., "--review-dir", help="Peer review output directory (from peer run)."),
+    output: Path = typer.Option(..., help="Report output directory."),
+) -> None:
+    """Aggregate peer review scores across all sidecars and write a report."""
+    from gwanbo_ocr.pdf.io import read_json, write_json_atomic
+
+    index_path = review_dir / "metadata.json"
+    index = read_json(index_path) or {}
+    if not index:
+        typer.echo(f"No metadata.json found in {review_dir}", err=True)
+        raise typer.Exit(1)
+
+    output.mkdir(parents=True, exist_ok=True)
+    method_counts: dict[str, int] = {}
+    decision_counts: dict[str, int] = {}
+    f1_by_method: dict[str, list[float]] = {}
+
+    for entry in index.values():
+        best = str(entry.get("best_text_method") or "none")
+        method_counts[best] = method_counts.get(best, 0) + 1
+        needs_ocr = bool((entry.get("decision") or {}).get("needs_ocr"))
+        key = "needs_ocr" if needs_ocr else "text_layer"
+        decision_counts[key] = decision_counts.get(key, 0) + 1
+        for name, score in (entry.get("peer_summaries") or {}).items():
+            if isinstance(score, dict) and score.get("critical_token_f1") is not None:
+                f1_by_method.setdefault(name, []).append(float(score["critical_token_f1"]))
+
+    avg_f1 = {
+        name: round(sum(vals) / len(vals), 4)
+        for name, vals in f1_by_method.items()
+        if vals
+    }
+    report = {
+        "total": len(index),
+        "by_best_method": method_counts,
+        "by_decision": decision_counts,
+        "avg_critical_token_f1_by_method": avg_f1,
+        "review_dir": str(review_dir),
+    }
+    write_json_atomic(output / "peer_score_report.json", report)
+    _echo_summary(report)
 
 
 def _echo_summary(summary: Any) -> None:
