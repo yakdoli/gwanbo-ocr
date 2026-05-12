@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from gwanbo_ocr.cli import app as cli_app
 from gwanbo_ocr.peer_review import (
+    aggregate_peer_scores,
     analyze_pdf_peer_review,
     decide_extraction,
     extract_markitdown,
@@ -646,3 +647,42 @@ class TestPeerCli:
 
         assert result.exit_code == 0, result.output
         assert (output / "summary.json").exists()
+
+
+def test_aggregate_peer_scores_reads_sidecar_scores(tmp_path: Path) -> None:
+    review_dir = tmp_path / "review"
+    items_dir = review_dir / "items"
+    items_dir.mkdir(parents=True)
+    sidecar = items_dir / "a.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "score": {
+                    "native_text": {"critical_token_f1": 0.9},
+                    "vlm_ocr": {"critical_token_f1": 0.7},
+                    "ranked_by_f1": ["native_text", "vlm_ocr"],
+                    "reference_tokens": ["x"],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (review_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "a": {
+                    "best_text_method": "native_text",
+                    "decision": {"needs_ocr": False},
+                    "sidecar_path": str(sidecar),
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = aggregate_peer_scores(review_dir)
+    assert report["total"] == 1
+    assert report["by_best_method"]["native_text"] == 1
+    assert report["avg_critical_token_f1_by_method"]["native_text"] == 0.9

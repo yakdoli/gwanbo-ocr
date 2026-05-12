@@ -140,6 +140,7 @@ def run_benchmark(
     api_key: str = "dummy",
     concurrency: int = 4,
     limit: int | None = None,
+    enforce_strategy_routing: bool = True,
 ) -> dict[str, Any]:
     """Run a lightweight OCR/VLM benchmark over rendered image tasks.
 
@@ -163,6 +164,7 @@ def run_benchmark(
                 model_id=model_id,
                 base_url=base_url,
                 api_key=api_key,
+                enforce_strategy_routing=enforce_strategy_routing,
             )
             for task in tasks
         ]
@@ -176,6 +178,7 @@ def run_benchmark(
                         model_id=model_id,
                         base_url=base_url,
                         api_key=api_key,
+                        enforce_strategy_routing=enforce_strategy_routing,
                     ),
                     tasks,
                 )
@@ -189,9 +192,12 @@ def run_benchmark(
         "model_id": model_id,
         "base_url": base_url,
         "concurrency": worker_count,
+        "enforce_strategy_routing": enforce_strategy_routing,
         "tasks": len(tasks),
         "results": str(results_path),
         "throughput": summarize_throughput(records),
+        "by_strategy": _count_by(records, "strategy"),
+        "by_route": _count_by(records, "route"),
     }
     (output / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, default=str),
@@ -207,10 +213,11 @@ def _run_benchmark_task(
     model_id: str,
     base_url: str,
     api_key: str,
+    enforce_strategy_routing: bool,
 ) -> dict[str, Any]:
-    from gwanbo_ocr.runners.vllm_chat import VllmChatRunner
-
     image_path = task.get("image_path")
+    strategy = str(task.get("strategy") or "")
+    route = ""
     started_at = now_iso()
     record: dict[str, Any] = {
         "item_id": str(task.get("sample_id") or task.get("id") or task.get("pdf_key") or ""),
@@ -218,6 +225,9 @@ def _run_benchmark_task(
         "model_id": model_id,
         "engine": "vllm-chat",
         "image_path": image_path,
+        "strategy": strategy,
+        "cluster_id": task.get("cluster_id"),
+        "strategy_confidence": task.get("strategy_confidence"),
         "started_at": started_at,
         "pages": 1,
         "bytes_processed": _file_size(image_path),
@@ -225,27 +235,62 @@ def _run_benchmark_task(
     try:
         if not image_path:
             raise ValueError("task is missing image_path")
-        runner = VllmChatRunner(
-            model=model_id,
-            base_url=base_url,
-            api_key=api_key,
-            strict_json=False,
-        )
-        result = runner.transcribe(
-            image_path,
-            page_number=int(task.get("page_number") or 1),
-            language_hint="ko,en",
-        )
+        if enforce_strategy_routing and strategy in {
+            "native_text_body",
+            "native_pdfplumber_table",
+        }:
+            route = "native_strategy_skip"
+            record.update(
+                {
+                    "status": "skipped",
+                    "ended_at": now_iso(),
+                    "route": route,
+                    "skip_reason": "native_text_layer_strategy",
+                }
+            )
+            record["duration_s"] = _duration(record)
+            return record
+
+        page_number = int(task.get("page_number") or 1)
+        if enforce_strategy_routing and strategy == "ocr_paddle_simple":
+            try:
+                route = "paddle_primary"
+                result = _transcribe_with_paddle(image_path, page_number=page_number)
+            except Exception:  # noqa: BLE001
+                route = "paddle_to_vllm_fallback"
+                result = _transcribe_with_vllm(
+                    image_path,
+                    page_number=page_number,
+                    model_id=model_id,
+                    base_url=base_url,
+                    api_key=api_key,
+                )
+        else:
+            route = "vlm_primary"
+            result = _transcribe_with_vllm(
+                image_path,
+                page_number=page_number,
+                model_id=model_id,
+                base_url=base_url,
+                api_key=api_key,
+            )
+
+        if enforce_strategy_routing and strategy == "peer_review_escalation":
+            route = "vlm_escalation"
+
         record.update(
             {
                 "status": "ok",
                 "ended_at": now_iso(),
                 "text": result.text,
                 "result": result.to_dict(),
+                "route": route,
             }
         )
     except Exception as exc:  # noqa: BLE001
         record.update({"status": "error", "ended_at": now_iso(), "error": str(exc)})
+        if route:
+            record["route"] = route
     record["duration_s"] = _duration(record)
     return record
 
@@ -276,6 +321,8 @@ def score_benchmark(*, run_dir: str | Path, output_dir: str | Path) -> dict[str,
         "records": len(records),
         "scores": str(scores_path),
         "throughput": throughput,
+        "by_strategy": _count_by(records, "strategy"),
+        "by_route": _count_by(records, "route"),
     }
     (output / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, default=str),
@@ -350,6 +397,36 @@ def _file_size(path_text: Any) -> int:
         return Path(str(path_text)).stat().st_size
     except OSError:
         return 0
+
+
+def _transcribe_with_vllm(
+    image_path: Any,
+    *,
+    page_number: int,
+    model_id: str,
+    base_url: str,
+    api_key: str,
+) -> Any:
+    from gwanbo_ocr.runners.vllm_chat import VllmChatRunner
+
+    runner = VllmChatRunner(
+        model=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        strict_json=False,
+    )
+    return runner.transcribe(
+        image_path,
+        page_number=page_number,
+        language_hint="ko,en",
+    )
+
+
+def _transcribe_with_paddle(image_path: Any, *, page_number: int) -> Any:
+    from gwanbo_ocr.runners.paddle import PaddleOcrRunner
+
+    runner = PaddleOcrRunner(lang="korean")
+    return runner.transcribe(image_path, page_number=page_number)
 
 
 def _duration(row: Mapping[str, Any]) -> float | None:

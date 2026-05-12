@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from gwanbo_ocr.cli import app
 from gwanbo_ocr.strategy import (
     assign_strategy,
+    build_strategy_benchmark_suite,
     cluster_profiles,
     evaluate_clusters,
     feature_signature,
@@ -146,6 +147,115 @@ def test_cluster_profiles_groups_by_signature_and_evaluates(tmp_path: Path) -> N
         "ocr_paddle_simple",
     }
     assert eval_summary["evaluated_clusters"] == 2
+
+
+def test_evaluate_clusters_merges_bench_and_peer_metrics(tmp_path: Path) -> None:
+    cluster_manifest = tmp_path / "cluster_manifest.jsonl"
+    cluster_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "layout-cluster/v1",
+                "cluster_id": "c1",
+                "assigned_strategy": "native_text_body",
+                "count": 2,
+                "confidence": 0.8,
+                "profile_summary": {"error_count": 0},
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bench_scores = tmp_path / "scores.jsonl"
+    bench_scores.write_text(
+        json.dumps(
+            {
+                "item_id": "x",
+                "strategy": "native_text_body",
+                "metrics": {
+                    "critical_token_f1": 0.93,
+                    "cer": 0.03,
+                    "wer": 0.05,
+                    "table_f1": 0.5,
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    peer_report = tmp_path / "peer_score_report.json"
+    peer_report.write_text(
+        json.dumps(
+            {
+                "avg_critical_token_f1_by_method": {
+                    "native_text": 0.88,
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    evaluate_clusters(
+        clusters_path=cluster_manifest,
+        output_dir=tmp_path / "eval",
+        bench_scores_path=bench_scores,
+        peer_score_report_path=peer_report,
+    )
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "eval" / "strategy_eval.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["critical_token_f1"] == 0.93
+    assert rows[0]["cer"] == 0.03
+    assert rows[0]["wer"] == 0.05
+    assert rows[0]["table_f1"] == 0.5
+
+
+def test_build_strategy_benchmark_suite_attaches_strategy(tmp_path: Path) -> None:
+    render_manifest = tmp_path / "render_manifest.jsonl"
+    render_manifest.write_text(
+        "\n".join(
+            [
+                json.dumps({"pdf_key": "a", "image_path": "a.png", "page_number": 1}),
+                json.dumps({"pdf_key": "b", "image_path": "b.png", "page_number": 1}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    clusters = tmp_path / "clusters.jsonl"
+    clusters.write_text(
+        json.dumps(
+            {
+                "cluster_id": "cluster-a",
+                "assigned_strategy": "native_text_body",
+                "confidence": 0.8,
+                "sample_pdf_keys": ["a"],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = build_strategy_benchmark_suite(
+        render_manifest_path=render_manifest,
+        clusters_path=clusters,
+        output_path=tmp_path / "suite.jsonl",
+    )
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "suite.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    by_key = {row["pdf_key"]: row for row in rows}
+    assert summary["tasks"] == 2
+    assert by_key["a"]["strategy"] == "native_text_body"
+    assert by_key["a"]["cluster_id"] == "cluster-a"
+    assert by_key["b"]["strategy"] == "peer_review_escalation"
 
 
 def test_strategy_cli_help() -> None:

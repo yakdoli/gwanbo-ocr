@@ -87,6 +87,13 @@ def test_strategy_evaluate_help() -> None:
     assert "--clusters" in result.output
 
 
+def test_strategy_pipeline_help() -> None:
+    result = runner.invoke(app, ["strategy", "pipeline", "--help"])
+    assert result.exit_code == 0
+    assert "--manifest" in result.output
+    assert "--output" in result.output
+
+
 def test_manifest_build_with_stub_peti_root(tmp_path: Path) -> None:
     """manifest build with empty metadata files produces an empty manifest."""
     peti = tmp_path / "peti"

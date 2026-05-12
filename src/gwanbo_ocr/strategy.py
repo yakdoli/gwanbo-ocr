@@ -23,6 +23,14 @@ STRATEGIES = {
     "skip_invalid",
 }
 
+PEER_METHOD_TO_STRATEGY = {
+    "native_text": "native_text_body",
+    "markitdown": "native_text_body",
+    "pdfplumber": "native_pdfplumber_table",
+    "paddle_ocr": "ocr_paddle_simple",
+    "vlm_ocr": "ocr_vlm_structured",
+}
+
 
 def cluster_profiles(
     *,
@@ -64,6 +72,8 @@ def evaluate_clusters(
     *,
     clusters_path: str | Path,
     output_dir: str | Path,
+    bench_scores_path: str | Path | None = None,
+    peer_score_report_path: str | Path | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Create v1 strategy-eval rows using available cluster proxy metrics."""
@@ -71,7 +81,16 @@ def evaluate_clusters(
     if limit is not None:
         clusters = clusters[:limit]
 
-    evaluations = [_evaluate_cluster(row) for row in clusters]
+    bench_metrics = _load_bench_metrics_by_strategy(bench_scores_path)
+    peer_metrics = _load_peer_metrics_by_strategy(peer_score_report_path)
+    evaluations = [
+        _evaluate_cluster(
+            row,
+            bench_metrics_by_strategy=bench_metrics,
+            peer_metrics_by_strategy=peer_metrics,
+        )
+        for row in clusters
+    ]
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     scores = output / "strategy_eval.jsonl"
@@ -82,6 +101,8 @@ def evaluate_clusters(
         "clusters": str(clusters_path),
         "output_dir": str(output),
         "scores": str(scores),
+        "bench_scores": str(bench_scores_path) if bench_scores_path else None,
+        "peer_score_report": str(peer_score_report_path) if peer_score_report_path else None,
         "evaluated_clusters": len(evaluations),
         "by_recommendation": dict(
             sorted(Counter(row["recommendation"] for row in evaluations).items())
@@ -196,7 +217,12 @@ def _cluster_from_group(
     }
 
 
-def _evaluate_cluster(cluster: Mapping[str, Any]) -> dict[str, Any]:
+def _evaluate_cluster(
+    cluster: Mapping[str, Any],
+    *,
+    bench_metrics_by_strategy: Mapping[str, Mapping[str, float]],
+    peer_metrics_by_strategy: Mapping[str, Mapping[str, float]],
+) -> dict[str, Any]:
     count = _optional_int(cluster.get("count")) or 0
     summary_payload = cluster.get("profile_summary")
     profile_summary = summary_payload if isinstance(summary_payload, Mapping) else {}
@@ -204,7 +230,20 @@ def _evaluate_cluster(cluster: Mapping[str, Any]) -> dict[str, Any]:
     strategy = str(cluster.get("assigned_strategy") or "peer_review_escalation")
     error_rate = errors / count if count else 0.0
     completion_rate = 0.0 if strategy == "skip_invalid" else max(0.0, 1.0 - error_rate)
-    recommendation = _recommendation(strategy, error_rate, float(cluster.get("confidence") or 0.0))
+    bench = bench_metrics_by_strategy.get(strategy, {})
+    peer = peer_metrics_by_strategy.get(strategy, {})
+    critical_token_f1 = _first_float(bench.get("critical_token_f1"), peer.get("critical_token_f1"))
+    cer = _optional_float(bench.get("cer"))
+    wer = _optional_float(bench.get("wer"))
+    table_f1 = _optional_float(bench.get("table_f1"))
+    confidence = float(cluster.get("confidence") or 0.0)
+    recommendation = _recommendation(
+        strategy,
+        error_rate,
+        confidence,
+        critical_token_f1=critical_token_f1,
+        cer=cer,
+    )
     return {
         "schema_version": EVAL_SCHEMA_VERSION,
         "cluster_id": cluster.get("cluster_id"),
@@ -212,21 +251,155 @@ def _evaluate_cluster(cluster: Mapping[str, Any]) -> dict[str, Any]:
         "sample_count": count,
         "completion_rate": round(completion_rate, 4),
         "error_rate": round(error_rate, 4),
-        "critical_token_f1": None,
-        "cer": None,
-        "wer": None,
-        "table_f1": None,
-        "peer_agreement": round(float(cluster.get("confidence") or 0.0), 4),
+        "critical_token_f1": _round_optional(critical_token_f1),
+        "cer": _round_optional(cer),
+        "wer": _round_optional(wer),
+        "table_f1": _round_optional(table_f1),
+        "peer_agreement": round(confidence, 4),
         "recommendation": recommendation,
     }
 
 
-def _recommendation(strategy: str, error_rate: float, confidence: float) -> str:
+def _recommendation(
+    strategy: str,
+    error_rate: float,
+    confidence: float,
+    *,
+    critical_token_f1: float | None,
+    cer: float | None,
+) -> str:
     if strategy == "skip_invalid":
         return "skip_or_repair_sources"
+    if critical_token_f1 is not None and critical_token_f1 < 0.9:
+        return "run_peer_review_before_scaling"
+    if cer is not None and cer > 0.12:
+        return "run_peer_review_before_scaling"
     if error_rate > 0.1 or confidence < 0.65:
         return "run_peer_review_before_scaling"
     return "ready_for_representative_sample"
+
+
+def build_strategy_benchmark_suite(
+    *,
+    render_manifest_path: str | Path,
+    clusters_path: str | Path,
+    output_path: str | Path,
+    include_strategies: set[str] | None = None,
+) -> dict[str, Any]:
+    """Attach cluster-assigned strategy metadata to rendered page tasks."""
+    rows = [row for row in read_jsonl(render_manifest_path) if isinstance(row, dict)]
+    clusters = [row for row in read_jsonl(clusters_path) if isinstance(row, dict)]
+    strategy_by_pdf_key: dict[str, dict[str, Any]] = {}
+    for cluster in clusters:
+        strategy = str(cluster.get("assigned_strategy") or "peer_review_escalation")
+        payload = {
+            "strategy": strategy,
+            "cluster_id": cluster.get("cluster_id"),
+            "strategy_confidence": cluster.get("confidence"),
+        }
+        for pdf_key in cluster.get("sample_pdf_keys") or []:
+            key = str(pdf_key or "").strip()
+            if key:
+                strategy_by_pdf_key[key] = payload
+
+    suite_rows: list[dict[str, Any]] = []
+    for row in rows:
+        pdf_key = str(row.get("pdf_key") or "").strip()
+        strategy_payload = strategy_by_pdf_key.get(pdf_key)
+        strategy = str(
+            (strategy_payload or {}).get("strategy")
+            or row.get("strategy")
+            or "peer_review_escalation"
+        )
+        if include_strategies and strategy not in include_strategies:
+            continue
+        suite_row = dict(row)
+        suite_row["strategy"] = strategy
+        if strategy_payload:
+            suite_row["cluster_id"] = strategy_payload.get("cluster_id")
+            suite_row["strategy_confidence"] = strategy_payload.get("strategy_confidence")
+        suite_rows.append(suite_row)
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_jsonl_atomic(output, suite_rows)
+    by_strategy = Counter(str(row.get("strategy") or "") for row in suite_rows)
+    return {
+        "status": "ok",
+        "render_manifest": str(render_manifest_path),
+        "clusters": str(clusters_path),
+        "output": str(output),
+        "tasks": len(suite_rows),
+        "by_strategy": dict(sorted((k, v) for k, v in by_strategy.items() if k)),
+        "unmapped_rows": sum(1 for row in suite_rows if row.get("cluster_id") is None),
+    }
+
+
+def _load_bench_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[str, float]]:
+    if path is None:
+        return {}
+    try:
+        rows = [row for row in read_jsonl(path) if isinstance(row, dict)]
+    except OSError:
+        return {}
+    aggregates: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in rows:
+        strategy = str(row.get("strategy") or "").strip()
+        if not strategy:
+            continue
+        metrics_payload = row.get("metrics")
+        if not isinstance(metrics_payload, Mapping):
+            continue
+        for key in ("critical_token_f1", "cer", "wer", "table_f1"):
+            value = _optional_float(metrics_payload.get(key))
+            if value is not None:
+                aggregates[strategy][key].append(value)
+    return {
+        strategy: {
+            key: (sum(values) / len(values))
+            for key, values in metrics.items()
+            if values
+        }
+        for strategy, metrics in aggregates.items()
+    }
+
+
+def _load_peer_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[str, float]]:
+    if path is None:
+        return {}
+    payload: dict[str, Any] = {}
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    by_method = payload.get("avg_critical_token_f1_by_method")
+    if not isinstance(by_method, Mapping):
+        return {}
+    per_strategy: dict[str, list[float]] = defaultdict(list)
+    for method, value in by_method.items():
+        strategy = PEER_METHOD_TO_STRATEGY.get(str(method))
+        score = _optional_float(value)
+        if strategy and score is not None:
+            per_strategy[strategy].append(score)
+    return {
+        strategy: {"critical_token_f1": sum(scores) / len(scores)}
+        for strategy, scores in per_strategy.items()
+        if scores
+    }
+
+
+def _first_float(*values: Any) -> float | None:
+    for value in values:
+        parsed = _optional_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _round_optional(value: float | None, digits: int = 4) -> float | None:
+    return round(value, digits) if value is not None else None
 
 
 def _feature_key(row: Mapping[str, Any]) -> tuple[str, ...]:

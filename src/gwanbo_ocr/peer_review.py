@@ -586,6 +586,62 @@ def run_peer_review_manifest(
     return summary
 
 
+def aggregate_peer_scores(review_dir: Path) -> dict[str, Any]:
+    """Aggregate method-level peer scores from peer-review sidecars."""
+    from gwanbo_ocr.pdf.io import read_json
+
+    index_path = review_dir / "metadata.json"
+    index = read_json(index_path) or {}
+    if not isinstance(index, dict) or not index:
+        raise ValueError(f"No metadata.json found in {review_dir}")
+
+    method_counts: dict[str, int] = {}
+    decision_counts: dict[str, int] = {}
+    f1_by_method: dict[str, list[float]] = {}
+
+    for entry in index.values():
+        if not isinstance(entry, dict):
+            continue
+        best = str(entry.get("best_text_method") or "none")
+        method_counts[best] = method_counts.get(best, 0) + 1
+        needs_ocr = bool((entry.get("decision") or {}).get("needs_ocr"))
+        decision_key = "needs_ocr" if needs_ocr else "text_layer"
+        decision_counts[decision_key] = decision_counts.get(decision_key, 0) + 1
+
+        sidecar_path = Path(str(entry.get("sidecar_path") or ""))
+        if not sidecar_path.is_file():
+            continue
+        sidecar = read_json(sidecar_path) or {}
+        if not isinstance(sidecar, dict):
+            continue
+        score_payload = sidecar.get("score")
+        score = score_payload if isinstance(score_payload, dict) else {}
+        for method, metrics in score.items():
+            if method in {"reference_tokens", "ranked_by_f1"}:
+                continue
+            if not isinstance(metrics, dict):
+                continue
+            value = metrics.get("critical_token_f1")
+            try:
+                if value is not None:
+                    f1_by_method.setdefault(str(method), []).append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+    avg_f1 = {
+        method: round(sum(values) / len(values), 4)
+        for method, values in f1_by_method.items()
+        if values
+    }
+    return {
+        "total": len(index),
+        "by_best_method": method_counts,
+        "by_decision": decision_counts,
+        "avg_critical_token_f1_by_method": avg_f1,
+        "review_dir": str(review_dir),
+    }
+
+
 def _process_work_item(work_item: dict[str, Any]) -> dict[str, Any]:
     row = work_item["row"]
     pdf_path = Path(work_item["pdf_path"])

@@ -12,6 +12,7 @@ from gwanbo_ocr.bench import (
     format_throughput_report,
     resolve_runner_model,
     run_benchmark,
+    score_benchmark,
     summarize_throughput,
 )
 
@@ -125,3 +126,186 @@ def test_run_benchmark_honors_concurrency_option(tmp_path: Path, monkeypatch: An
     assert summary["concurrency"] == 2
     assert summary["tasks"] == 3
     assert len(records) == 3
+
+
+def test_run_benchmark_preserves_strategy_metadata(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    suite = tmp_path / "suite.jsonl"
+    suite.write_text(
+        json.dumps(
+            {
+                "sample_id": "s1",
+                "image_path": str(image),
+                "page_number": 1,
+                "strategy": "ocr_vlm_structured",
+                "cluster_id": "cluster-1",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FakeResult:
+        text = "ok"
+        data = {"text": "ok"}
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeRunner:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeRunner)
+    run_benchmark(
+        suite=str(suite),
+        runner_name="direct-model",
+        run_dir=tmp_path / "run",
+        concurrency=1,
+    )
+    record = json.loads((tmp_path / "run" / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record["strategy"] == "ocr_vlm_structured"
+    assert record["cluster_id"] == "cluster-1"
+
+
+def test_run_benchmark_skips_native_strategy_when_enforced(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    suite = tmp_path / "suite.jsonl"
+    suite.write_text(
+        json.dumps(
+            {
+                "sample_id": "s1",
+                "image_path": str(image),
+                "page_number": 1,
+                "strategy": "native_text_body",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class ShouldNotRunVllm:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("vllm should not run for native strategy")
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", ShouldNotRunVllm)
+    summary = run_benchmark(
+        suite=str(suite),
+        runner_name="direct-model",
+        run_dir=tmp_path / "run",
+        concurrency=1,
+        enforce_strategy_routing=True,
+    )
+    record = json.loads((tmp_path / "run" / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert summary["tasks"] == 1
+    assert record["status"] == "skipped"
+    assert record["route"] == "native_strategy_skip"
+    assert summary["by_route"]["native_strategy_skip"] == 1
+
+
+def test_run_benchmark_falls_back_to_vllm_when_paddle_fails(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    suite = tmp_path / "suite.jsonl"
+    suite.write_text(
+        json.dumps(
+            {
+                "sample_id": "s1",
+                "image_path": str(image),
+                "page_number": 1,
+                "strategy": "ocr_paddle_simple",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FailingPaddle:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("paddle unavailable")
+
+    class FakeResult:
+        text = "ok"
+        data = {"text": "ok"}
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeVllm:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.paddle as paddle
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(paddle, "PaddleOcrRunner", FailingPaddle)
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeVllm)
+
+    run_benchmark(
+        suite=str(suite),
+        runner_name="direct-model",
+        run_dir=tmp_path / "run",
+        concurrency=1,
+        enforce_strategy_routing=True,
+    )
+    record = json.loads((tmp_path / "run" / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record["status"] == "ok"
+    assert record["route"] == "paddle_to_vllm_fallback"
+
+
+def test_score_benchmark_includes_route_summary(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "results.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "item_id": "a",
+                        "status": "ok",
+                        "route": "vlm_primary",
+                        "strategy": "ocr_vlm_structured",
+                        "started_at": "2026-05-12T00:00:00Z",
+                        "ended_at": "2026-05-12T00:00:01Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "item_id": "b",
+                        "status": "skipped",
+                        "route": "native_strategy_skip",
+                        "strategy": "native_text_body",
+                        "started_at": "2026-05-12T00:00:00Z",
+                        "ended_at": "2026-05-12T00:00:00Z",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = score_benchmark(run_dir=run_dir, output_dir=tmp_path / "report")
+    assert summary["by_route"]["vlm_primary"] == 1
+    assert summary["by_route"]["native_strategy_skip"] == 1
+    assert summary["by_strategy"]["ocr_vlm_structured"] == 1

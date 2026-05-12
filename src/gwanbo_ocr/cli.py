@@ -179,6 +179,11 @@ def bench_run(
     base_url: str = typer.Option("http://127.0.0.1:8000/v1", help="OpenAI-compatible base URL."),
     api_key: str = typer.Option("dummy", help="OpenAI-compatible API key."),
     concurrency: int = typer.Option(4, help="Concurrent inference requests."),
+    enforce_strategy_routing: bool = typer.Option(
+        True,
+        "--enforce-strategy-routing/--no-enforce-strategy-routing",
+        help="Route tasks by strategy and apply fallback policies.",
+    ),
     limit: int | None = typer.Option(None, help="Maximum page tasks to process."),
 ) -> None:
     """Run OCR/VLM benchmark tasks for one runner."""
@@ -191,6 +196,7 @@ def bench_run(
         base_url=base_url,
         api_key=api_key,
         concurrency=concurrency,
+        enforce_strategy_routing=enforce_strategy_routing,
         limit=limit,
     )
     _echo_summary(summary)
@@ -229,6 +235,16 @@ def strategy_cluster(
 def strategy_evaluate(
     clusters: Path = typer.Option(..., "--clusters", help="Input layout cluster manifest JSONL."),
     output: Path = typer.Option(..., help="Output strategy evaluation directory."),
+    bench_scores: Path | None = typer.Option(
+        None,
+        "--bench-scores",
+        help="Optional bench score JSONL path (for cer/wer/table_f1/critical_token_f1).",
+    ),
+    peer_score_report: Path | None = typer.Option(
+        None,
+        "--peer-score-report",
+        help="Optional peer score report JSON (for critical_token_f1 fallback).",
+    ),
     limit: int | None = typer.Option(None, help="Maximum clusters to evaluate."),
 ) -> None:
     """Evaluate assigned parsing strategies using available cluster metrics."""
@@ -237,9 +253,152 @@ def strategy_evaluate(
     summary = evaluate_clusters(
         clusters_path=clusters,
         output_dir=output,
+        bench_scores_path=bench_scores,
+        peer_score_report_path=peer_score_report,
         limit=limit,
     )
     _echo_summary(summary)
+
+
+@strategy_app.command("pipeline")
+def strategy_pipeline(
+    manifest: Path = typer.Option(..., "--manifest", help="Input PDF manifest JSONL."),
+    output: Path = typer.Option(..., help="Pipeline output root directory."),
+    runner: str = typer.Option("qwen36_baseline", help="Bench runner/model alias."),
+    base_url: str = typer.Option("http://127.0.0.1:8000/v1", help="OpenAI-compatible base URL."),
+    api_key: str = typer.Option("dummy", help="OpenAI-compatible API key."),
+    sample_per_bucket: int = typer.Option(
+        20,
+        "--sample-per-bucket",
+        help="Max profile rows per theme/year/category bucket; 0 means all.",
+    ),
+    profile_max_pages: int = typer.Option(3, help="Pages to inspect for profiling; 0 means all."),
+    render_max_pages: int = typer.Option(1, help="Pages to render per PDF; 0 means all selected."),
+    cluster_sample_keys: int = typer.Option(
+        20,
+        "--cluster-sample-keys",
+        help="Representative pdf keys to keep per cluster (for strategy suite mapping).",
+    ),
+    workers: int = typer.Option(1, help="Worker count for profile/peer stages."),
+    render_workers: int = typer.Option(4, help="Worker count for render stage."),
+    concurrency: int = typer.Option(4, help="Concurrent requests for bench run."),
+    enforce_strategy_routing: bool = typer.Option(
+        True,
+        "--enforce-strategy-routing/--no-enforce-strategy-routing",
+        help="Route tasks by strategy and apply fallback policies during bench run.",
+    ),
+    run_peer: bool = typer.Option(True, "--peer/--no-peer", help="Run peer review stages."),
+    run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
+    limit: int | None = typer.Option(None, help="Optional row/task cap for quick runs."),
+) -> None:
+    """Run end-to-end strategy pipeline from profiling to strategy evaluation."""
+    from gwanbo_ocr.bench import run_benchmark, score_benchmark
+    from gwanbo_ocr.peer_review import aggregate_peer_scores, run_peer_review_manifest
+    from gwanbo_ocr.pdf.io import write_json_atomic
+    from gwanbo_ocr.pdf.profile import profile_manifest
+    from gwanbo_ocr.render import render_manifest
+    from gwanbo_ocr.strategy import (
+        build_strategy_benchmark_suite,
+        cluster_profiles,
+        evaluate_clusters,
+    )
+
+    output.mkdir(parents=True, exist_ok=True)
+    profiles_dir = output / "profiles"
+    clusters_dir = output / "clusters"
+    images_dir = output / "images"
+    suite_path = output / "bench" / "strategy_suite.jsonl"
+    bench_run_dir = output / "bench" / runner
+    bench_report_dir = output / "reports" / runner
+    peer_dir = output / "peer_review"
+    peer_report_dir = output / "reports" / "peer"
+    strategy_eval_dir = output / "strategy_eval"
+
+    profile_summary = profile_manifest(
+        manifest_path=manifest,
+        output_dir=profiles_dir,
+        max_pages=None if profile_max_pages == 0 else profile_max_pages,
+        workers=workers,
+        sample_per_bucket=None if sample_per_bucket == 0 else sample_per_bucket,
+        limit=limit,
+    )
+    cluster_summary = cluster_profiles(
+        profiles_path=profiles_dir / "manifest.jsonl",
+        output_dir=clusters_dir,
+        sample_keys=cluster_sample_keys,
+    )
+    render_summary = render_manifest(
+        manifest_path=manifest,
+        output_dir=images_dir,
+        max_pages=None if render_max_pages == 0 else render_max_pages,
+        workers=render_workers,
+        limit=limit,
+    )
+    suite_summary = build_strategy_benchmark_suite(
+        render_manifest_path=images_dir / "manifest.jsonl",
+        clusters_path=clusters_dir / "cluster_manifest.jsonl",
+        output_path=suite_path,
+    )
+    bench_run_summary = run_benchmark(
+        suite=str(suite_path),
+        runner_name=runner,
+        run_dir=bench_run_dir,
+        base_url=base_url,
+        api_key=api_key,
+        concurrency=concurrency,
+        enforce_strategy_routing=enforce_strategy_routing,
+        limit=limit,
+    )
+    bench_score_summary = score_benchmark(run_dir=bench_run_dir, output_dir=bench_report_dir)
+
+    peer_run_summary: dict[str, Any] | None = None
+    peer_score_summary: dict[str, Any] | None = None
+    peer_score_report_path: Path | None = None
+    if run_peer:
+        peer_run_summary = run_peer_review_manifest(
+            manifest_path=manifest,
+            output_dir=peer_dir,
+            run_paddle=run_paddle,
+            max_pages=None if render_max_pages == 0 else render_max_pages,
+            workers=workers,
+            limit=limit,
+        )
+        peer_score_summary = aggregate_peer_scores(peer_dir)
+        peer_report_dir.mkdir(parents=True, exist_ok=True)
+        peer_score_report_path = peer_report_dir / "peer_score_report.json"
+        write_json_atomic(peer_score_report_path, peer_score_summary)
+
+    eval_summary = evaluate_clusters(
+        clusters_path=clusters_dir / "cluster_manifest.jsonl",
+        output_dir=strategy_eval_dir,
+        bench_scores_path=bench_report_dir / "scores.jsonl",
+        peer_score_report_path=peer_score_report_path,
+    )
+
+    pipeline_summary = {
+        "status": "ok",
+        "manifest": str(manifest),
+        "output": str(output),
+        "profile": profile_summary,
+        "cluster": cluster_summary,
+        "render": render_summary,
+        "suite": suite_summary,
+        "bench_run": bench_run_summary,
+        "bench_score": bench_score_summary,
+        "peer_run": peer_run_summary,
+        "peer_score": peer_score_summary,
+        "strategy_eval": eval_summary,
+    }
+    write_json_atomic(output / "pipeline_summary.json", pipeline_summary)
+    _echo_summary(
+        {
+            "status": "ok",
+            "output": str(output),
+            "pipeline_summary": str(output / "pipeline_summary.json"),
+            "evaluated_clusters": eval_summary.get("evaluated_clusters", 0),
+            "bench_tasks": bench_run_summary.get("tasks", 0),
+        }
+    )
 
 
 @peer_app.command("run")
@@ -301,37 +460,16 @@ def peer_score(
     output: Path = typer.Option(..., help="Report output directory."),
 ) -> None:
     """Aggregate peer review scores across all sidecars and write a report."""
-    from gwanbo_ocr.pdf.io import read_json, write_json_atomic
+    from gwanbo_ocr.pdf.io import write_json_atomic
+    from gwanbo_ocr.peer_review import aggregate_peer_scores
 
-    index_path = review_dir / "metadata.json"
-    index = read_json(index_path) or {}
-    if not index:
-        typer.echo(f"No metadata.json found in {review_dir}", err=True)
-        raise typer.Exit(1)
+    try:
+        report = aggregate_peer_scores(review_dir)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
     output.mkdir(parents=True, exist_ok=True)
-    method_counts: dict[str, int] = {}
-    decision_counts: dict[str, int] = {}
-    f1_by_method: dict[str, list[float]] = {}
-
-    for entry in index.values():
-        best = str(entry.get("best_text_method") or "none")
-        method_counts[best] = method_counts.get(best, 0) + 1
-        needs_ocr = bool((entry.get("decision") or {}).get("needs_ocr"))
-        key = "needs_ocr" if needs_ocr else "text_layer"
-        decision_counts[key] = decision_counts.get(key, 0) + 1
-        for name, score in (entry.get("peer_summaries") or {}).items():
-            if isinstance(score, dict) and score.get("critical_token_f1") is not None:
-                f1_by_method.setdefault(name, []).append(float(score["critical_token_f1"]))
-
-    avg_f1 = {name: round(sum(vals) / len(vals), 4) for name, vals in f1_by_method.items() if vals}
-    report = {
-        "total": len(index),
-        "by_best_method": method_counts,
-        "by_decision": decision_counts,
-        "avg_critical_token_f1_by_method": avg_f1,
-        "review_dir": str(review_dir),
-    }
     write_json_atomic(output / "peer_score_report.json", report)
     _echo_summary(report)
 
