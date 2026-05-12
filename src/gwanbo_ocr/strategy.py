@@ -13,6 +13,7 @@ from gwanbo_ocr.pdf.io import read_jsonl, write_json_atomic, write_jsonl_atomic
 
 CLUSTER_SCHEMA_VERSION = "layout-cluster/v1"
 EVAL_SCHEMA_VERSION = "strategy-eval/v1"
+BENCH_SUCCESS_STATUSES = {"ok", "success", "completed"}
 
 STRATEGIES = {
     "native_text_body",
@@ -228,10 +229,16 @@ def _evaluate_cluster(
     profile_summary = summary_payload if isinstance(summary_payload, Mapping) else {}
     errors = _optional_int(profile_summary.get("error_count")) or 0
     strategy = str(cluster.get("assigned_strategy") or "peer_review_escalation")
-    error_rate = errors / count if count else 0.0
-    completion_rate = 0.0 if strategy == "skip_invalid" else max(0.0, 1.0 - error_rate)
+    profile_error_rate = errors / count if count else 0.0
     bench = bench_metrics_by_strategy.get(strategy, {})
     peer = peer_metrics_by_strategy.get(strategy, {})
+    bench_error_rate = _optional_float(bench.get("bench_error_rate"))
+    effective_error_rate = (
+        max(profile_error_rate, bench_error_rate)
+        if bench_error_rate is not None
+        else profile_error_rate
+    )
+    completion_rate = 0.0 if strategy == "skip_invalid" else max(0.0, 1.0 - effective_error_rate)
     critical_token_f1 = _first_float(bench.get("critical_token_f1"), peer.get("critical_token_f1"))
     cer = _optional_float(bench.get("cer"))
     wer = _optional_float(bench.get("wer"))
@@ -239,7 +246,7 @@ def _evaluate_cluster(
     confidence = float(cluster.get("confidence") or 0.0)
     recommendation = _recommendation(
         strategy,
-        error_rate,
+        effective_error_rate,
         confidence,
         critical_token_f1=critical_token_f1,
         cer=cer,
@@ -250,7 +257,9 @@ def _evaluate_cluster(
         "strategy": strategy,
         "sample_count": count,
         "completion_rate": round(completion_rate, 4),
-        "error_rate": round(error_rate, 4),
+        "error_rate": round(effective_error_rate, 4),
+        "profile_error_rate": round(profile_error_rate, 4),
+        "bench_error_rate": _round_optional(bench_error_rate),
         "critical_token_f1": _round_optional(critical_token_f1),
         "cer": _round_optional(cer),
         "wer": _round_optional(wer),
@@ -345,10 +354,15 @@ def _load_bench_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[s
     aggregates: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
+    status_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "errors": 0})
     for row in rows:
         strategy = str(row.get("strategy") or "").strip()
         if not strategy:
             continue
+        status_counts[strategy]["total"] += 1
+        status = str(row.get("status") or "").strip().casefold()
+        if status and status not in BENCH_SUCCESS_STATUSES and status != "skipped":
+            status_counts[strategy]["errors"] += 1
         metrics_payload = row.get("metrics")
         if not isinstance(metrics_payload, Mapping):
             continue
@@ -356,14 +370,20 @@ def _load_bench_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[s
             value = _optional_float(metrics_payload.get(key))
             if value is not None:
                 aggregates[strategy][key].append(value)
-    return {
-        strategy: {
-            key: (sum(values) / len(values))
-            for key, values in metrics.items()
-            if values
+    all_strategies = set(aggregates) | set(status_counts)
+    output: dict[str, dict[str, float]] = {}
+    for strategy in all_strategies:
+        values = aggregates.get(strategy, {})
+        merged = {
+            key: (sum(metric_values) / len(metric_values))
+            for key, metric_values in values.items()
+            if metric_values
         }
-        for strategy, metrics in aggregates.items()
-    }
+        counts = status_counts.get(strategy)
+        if counts and counts["total"] > 0:
+            merged["bench_error_rate"] = counts["errors"] / counts["total"]
+        output[strategy] = merged
+    return output
 
 
 def _load_peer_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[str, float]]:
