@@ -375,6 +375,20 @@ def strategy_pipeline(
         peer_score_report_path=peer_score_report_path,
     )
 
+    by_route_payload = bench_run_summary.get("by_route")
+    by_route = by_route_payload if isinstance(by_route_payload, dict) else {}
+    throughput_payload = bench_run_summary.get("throughput")
+    throughput = throughput_payload if isinstance(throughput_payload, dict) else {}
+    total_tasks = int(bench_run_summary.get("tasks") or 0)
+    fallback_count = int(by_route.get("paddle_to_vllm_fallback") or 0)
+    error_count = int(throughput.get("failed") or 0)
+    route_metrics = {
+        "fallback_count": fallback_count,
+        "fallback_rate": round((fallback_count / total_tasks), 4) if total_tasks else 0.0,
+        "error_count": error_count,
+        "error_rate": round((error_count / total_tasks), 4) if total_tasks else 0.0,
+    }
+
     pipeline_summary = {
         "status": "ok",
         "manifest": str(manifest),
@@ -385,6 +399,7 @@ def strategy_pipeline(
         "suite": suite_summary,
         "bench_run": bench_run_summary,
         "bench_score": bench_score_summary,
+        "route_metrics": route_metrics,
         "peer_run": peer_run_summary,
         "peer_score": peer_score_summary,
         "strategy_eval": eval_summary,
