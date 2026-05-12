@@ -184,6 +184,16 @@ def bench_run(
         "--enforce-strategy-routing/--no-enforce-strategy-routing",
         help="Route tasks by strategy and apply fallback policies.",
     ),
+    preflight_vllm: bool = typer.Option(
+        True,
+        "--preflight-vllm/--no-preflight-vllm",
+        help="Check VLM endpoint reachability before benchmark execution.",
+    ),
+    preflight_timeout_s: float = typer.Option(
+        5.0,
+        "--preflight-timeout-s",
+        help="Timeout in seconds for VLM endpoint preflight check.",
+    ),
     limit: int | None = typer.Option(None, help="Maximum page tasks to process."),
 ) -> None:
     """Run OCR/VLM benchmark tasks for one runner."""

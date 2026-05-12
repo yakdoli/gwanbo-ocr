@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
 SUCCESS_STATUSES = {"ok", "success", "completed"}
 
@@ -141,6 +142,8 @@ def run_benchmark(
     concurrency: int = 4,
     limit: int | None = None,
     enforce_strategy_routing: bool = True,
+    preflight_vllm: bool = False,
+    preflight_timeout_s: float = 5.0,
 ) -> dict[str, Any]:
     """Run a lightweight OCR/VLM benchmark over rendered image tasks.
 
@@ -156,6 +159,21 @@ def run_benchmark(
 
     model_id = resolve_runner_model(runner_name)
     worker_count = max(1, concurrency)
+
+    preflight: dict[str, Any]
+    if not preflight_vllm:
+        preflight = {"status": "disabled"}
+    elif not tasks:
+        preflight = {"status": "skipped_no_tasks"}
+    elif not _tasks_require_vllm(tasks, enforce_strategy_routing=enforce_strategy_routing):
+        preflight = {"status": "skipped_no_vllm_route"}
+    else:
+        preflight = _preflight_openai_endpoint(
+            base_url=base_url,
+            api_key=api_key,
+            timeout_s=preflight_timeout_s,
+        )
+
     if worker_count == 1:
         records = [
             _run_benchmark_task(
@@ -193,6 +211,7 @@ def run_benchmark(
         "base_url": base_url,
         "concurrency": worker_count,
         "enforce_strategy_routing": enforce_strategy_routing,
+        "preflight": preflight,
         "tasks": len(tasks),
         "results": str(results_path),
         "throughput": summarize_throughput(records),
@@ -397,6 +416,58 @@ def _file_size(path_text: Any) -> int:
         return Path(str(path_text)).stat().st_size
     except OSError:
         return 0
+
+
+def _tasks_require_vllm(
+    tasks: Iterable[Mapping[str, Any]],
+    *,
+    enforce_strategy_routing: bool,
+) -> bool:
+    if not enforce_strategy_routing:
+        return any(True for _ in tasks)
+    for task in tasks:
+        strategy = str(task.get("strategy") or "")
+        if strategy in {"native_text_body", "native_pdfplumber_table"}:
+            continue
+        return True
+    return False
+
+
+def _preflight_openai_endpoint(
+    *,
+    base_url: str,
+    api_key: str,
+    timeout_s: float,
+) -> dict[str, Any]:
+    models_url = _models_endpoint(base_url)
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = request.Request(models_url, headers=headers)
+    try:
+        with request.urlopen(req, timeout=timeout_s) as response:
+            status = int(getattr(response, "status", response.getcode()))
+            return {"status": "ok", "url": models_url, "http_status": status}
+    except error.HTTPError as exc:
+        status = int(exc.code)
+        if status in {401, 403, 404}:
+            return {
+                "status": "reachable_http_error",
+                "url": models_url,
+                "http_status": status,
+            }
+        raise RuntimeError(
+            f"vLLM preflight failed ({status}) at {models_url}: {exc.reason}"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"vLLM preflight failed at {models_url}: {exc}") from exc
+
+
+def _models_endpoint(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return f"{normalized}/models"
+    return f"{normalized}/v1/models"
 
 
 def _transcribe_with_vllm(
