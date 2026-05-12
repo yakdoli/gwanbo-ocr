@@ -56,6 +56,13 @@ sidecar, 렌더 이미지, benchmark result, report는 모두 이 저장소 밖�
    렌더링된 image manifest를 입력으로 VLM/PaddleOCR runner를 실행하고,
    throughput 및 accuracy metric report를 생성합니다.
 
+6. `pdf profile` / `strategy cluster` / `strategy evaluate`
+   대용량 OCR 실행 전에 원본 metadata와 경량 PDF feature를 결합해
+   `pdf-profile/v1`을 만들고, `연도 x PDF 종류 x 레이아웃` 단위의
+   deterministic cluster를 생성합니다. 각 cluster는 기본 parsing strategy를
+   배정받고, representative sample 평가를 위한 `strategy-eval/v1` row로
+   요약됩니다.
+
 ## 런타임 정책
 
 vLLM은 이 프로젝트의 Python dependency로 설치하지 않습니다. vLLM, torch,
@@ -101,7 +108,9 @@ URL로 첨부해 JSON-only transcription prompt를 전송합니다.
 - `src/gwanbo_ocr/pdf/text.py`: native text 추출 메타데이터
 - `src/gwanbo_ocr/pdf/classification.py`: PDF 분류 sidecar 생성
 - `src/gwanbo_ocr/pdf/layout.py`: text PDF layout/table 분석
+- `src/gwanbo_ocr/pdf/profile.py`: manifest row별 PDF feature profile 생성
 - `src/gwanbo_ocr/render.py`: PDF page PNG 렌더링
+- `src/gwanbo_ocr/strategy.py`: layout cluster 생성 및 parsing strategy 평가
 - `src/gwanbo_ocr/prompts.py`: OCR/VLM transcription prompt
 - `src/gwanbo_ocr/runners/vllm.py`: OpenAI-compatible VLM runner
 - `src/gwanbo_ocr/runners/paddle.py`: PaddleOCR adapter
@@ -150,6 +159,26 @@ OCR/VLM result는 다음 상위 필드를 갖습니다.
 - `image_sha256`
 - `error`
 
+PDF profile row는 cluster 입력으로 다음 상위 필드를 갖습니다.
+
+- `schema_version`: `pdf-profile/v1`
+- `pdf_key`, `id`, `theme`, `year`, `category`, `agency`
+- `pdf_path`, `pdf_abs_path`, `pdf_exists`
+- `size_bytes`, `pages`, `integrity_status`
+- `text_extractable`, `text_mode`, `total_chars`
+- `layout_class`, `table_count`, `table_text_ratio`, `form_score`, `text_quality`
+- `error`
+
+Layout cluster row는 다음 상위 필드를 갖습니다.
+
+- `schema_version`: `layout-cluster/v1`
+- `cluster_id`
+- `year`, `theme`, `dominant_category`
+- `feature_signature`
+- `count`, `sample_pdf_keys`
+- `assigned_strategy`, `confidence`, `reasons`
+- `profile_summary`
+
 ## 일반 실행 흐름
 
 ```bash
@@ -173,6 +202,21 @@ gwanbo-ocr pdf render \
   --output runs/<run_id>/images \
   --dpi 200 \
   --max-long-edge 2400
+
+gwanbo-ocr pdf profile \
+  --input runs/<run_id>/pdf_manifest.jsonl \
+  --output runs/<run_id>/profiles \
+  --max-pages 3 \
+  --workers 8 \
+  --sample-per-bucket 20
+
+gwanbo-ocr strategy cluster \
+  --profiles runs/<run_id>/profiles/manifest.jsonl \
+  --output runs/<run_id>/clusters
+
+gwanbo-ocr strategy evaluate \
+  --clusters runs/<run_id>/clusters/cluster_manifest.jsonl \
+  --output runs/<run_id>/strategy_eval
 
 gwanbo-ocr bench run \
   --suite runs/<run_id>/images/manifest.jsonl \

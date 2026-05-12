@@ -98,12 +98,7 @@ def sample_entries(
             if remaining <= 0:
                 break
 
-    pool = [
-        row
-        for group in groups.values()
-        for row in group
-        if _identity(row) not in selected_ids
-    ]
+    pool = [row for group in groups.values() for row in group if _identity(row) not in selected_ids]
     pool.sort(key=lambda row: stable_digest(_identity(row), seed))
     for row in pool:
         if len(selected) >= size:
@@ -186,10 +181,7 @@ def _sample_payload(
     payload = {field: row.get(field) for field in fields if field in row}
     payload["sample_index"] = index
     payload["sample_id"] = stable_digest(_identity(row))[:16]
-    payload["stratum"] = {
-        field: _derived_field(row, field)
-        for field in strata
-    }
+    payload["stratum"] = {field: _derived_field(row, field) for field in strata}
     payload["critical_tokens"] = critical_tokens_for_entry(row, fields=token_fields)
     return payload
 

@@ -12,17 +12,23 @@ from .io import (
     file_sha256,
     iter_pdf_paths,
     read_jsonl,
+    resolve_pdf_path,
     write_json_atomic,
     write_jsonl_atomic,
 )
 
+_PdfReader: Any
 try:  # Prefer the maintained package when it exists.
-    from pypdf import PdfReader as _PdfReader  # type: ignore[import-not-found]
+    from pypdf import PdfReader as _PypdfReader  # type: ignore[import-not-found]
+
+    _PdfReader = _PypdfReader
 except ImportError:  # pragma: no cover - depends on optional environment.
     try:
-        from PyPDF2 import PdfReader as _PdfReader  # type: ignore[import-not-found]
+        from PyPDF2 import PdfReader as _PyPdf2Reader  # type: ignore[import-not-found]
+
+        _PdfReader = _PyPdf2Reader
     except ImportError:  # pragma: no cover - default in the kata environment.
-        _PdfReader = None  # type: ignore[assignment]
+        _PdfReader = None
 
 
 EOF_TAIL_BYTES = 4096
@@ -104,13 +110,17 @@ def validate_pdf_integrity(
     eof_ok = has_pdf_eof(data)
     result["checks"]["pdf_eof"] = {
         "status": "pass" if eof_ok else "fail",
-        "message": "EOF marker present near file end" if eof_ok else "EOF marker missing near file end",
+        "message": "EOF marker present near file end"
+        if eof_ok
+        else "EOF marker missing near file end",
     }
 
     structure_ok = header_ok and eof_ok and size_bytes >= min_size_bytes
     result["checks"]["pdf_structure"] = {
         "status": "pass" if structure_ok else "fail",
-        "message": "basic PDF structure present" if structure_ok else "basic PDF structure incomplete",
+        "message": "basic PDF structure present"
+        if structure_ok
+        else "basic PDF structure incomplete",
     }
 
     if include_hashes:
@@ -181,8 +191,16 @@ class PDFValidator:
                 "validation_timestamp": datetime.now().isoformat(),
                 "summary": {
                     "total_files": len(self.validation_results),
-                    "passed": sum(1 for item in self.validation_results if item.get("overall_status") == "pass"),
-                    "failed": sum(1 for item in self.validation_results if item.get("overall_status") == "fail"),
+                    "passed": sum(
+                        1
+                        for item in self.validation_results
+                        if item.get("overall_status") == "pass"
+                    ),
+                    "failed": sum(
+                        1
+                        for item in self.validation_results
+                        if item.get("overall_status") == "fail"
+                    ),
                 },
                 "results": self.validation_results,
             }
@@ -261,8 +279,4 @@ def _reader_check(path: Path) -> dict[str, Any]:
 
 
 def _row_pdf_path(row: dict[str, Any]) -> Path:
-    for key in ("pdf_abs_path", "pdf_path", "path"):
-        value = str(row.get(key) or "").strip()
-        if value:
-            return Path(value)
-    return Path("")
+    return resolve_pdf_path(row, peti_root="/root/peti")

@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +63,32 @@ def read_jsonl(path: Path | str) -> Iterator[Any]:
                 yield json.loads(line)
 
 
+def iter_jsonl_records(path: Path | str) -> Iterator[tuple[int, Any]]:
+    """Yield ``(line_number, payload)`` pairs from a JSONL file.
+
+    Malformed lines are returned as error dictionaries instead of aborting the
+    whole batch. Batch pipeline stages use this when they need to record row
+    errors and keep processing the rest of a large manifest.
+    """
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield line_number, json.loads(line)
+            except json.JSONDecodeError as exc:
+                yield (
+                    line_number,
+                    {
+                        "schema_version": "jsonl-error/v1",
+                        "status": "error",
+                        "error": f"malformed_jsonl:{exc.msg}",
+                        "line_number": line_number,
+                    },
+                )
+
+
 def write_jsonl_atomic(path: Path | str, rows: Iterable[Any]) -> None:
     """Write JSONL rows using an atomic replace."""
     target = Path(path)
@@ -75,7 +101,9 @@ def write_jsonl_atomic(path: Path | str, rows: Iterable[Any]) -> None:
     temp_path.replace(target)
 
 
-def file_digest(path: Path | str, algorithm: str = "sha256", *, chunk_size: int = 1024 * 1024) -> str:
+def file_digest(
+    path: Path | str, algorithm: str = "sha256", *, chunk_size: int = 1024 * 1024
+) -> str:
     """Return a hex digest for *path* using hashlib *algorithm*."""
     digest = hashlib.new(algorithm)
     with Path(path).open("rb") as handle:
@@ -112,6 +140,44 @@ def resolve_path(path_text: str | Path, base_dir: Path | str | None = None) -> P
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def resolve_pdf_path(
+    row: Mapping[str, Any],
+    *,
+    base_dir: Path | str | None = None,
+    peti_root: Path | str | None = None,
+) -> Path:
+    """Resolve the canonical PDF path for a manifest-like row.
+
+    The project manifest stores both a repository-relative ``pdf_path`` and an
+    absolute ``pdf_abs_path``. Runtime stages should prefer ``pdf_abs_path`` so
+    they do not accidentally resolve `/root/peti` artifacts relative to the
+    current working directory.
+    """
+    for key in ("pdf_abs_path", "pdf_path", "path"):
+        value = str(row.get(key) or "").strip()
+        if not value:
+            continue
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        if key == "pdf_path" and peti_root is not None and value.startswith("artifacts/"):
+            return (Path(peti_root) / path).resolve(strict=False)
+        return resolve_path(path, base_dir=base_dir)
+    return Path("")
+
+
+def pdf_key_from_row(row: Mapping[str, Any], *, fallback: str = "unknown") -> str:
+    """Return a stable key for a manifest/profile row."""
+    for key in ("pdf_key", "metadata_key", "sample_id", "id"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value.replace("\\", "/").strip("/")
+    path_text = str(row.get("pdf_path") or row.get("pdf_abs_path") or "").strip()
+    if path_text:
+        return Path(path_text).with_suffix("").as_posix().strip("/") or fallback
+    return fallback
 
 
 def relative_to_or_str(path: Path | str, root: Path | str) -> str:

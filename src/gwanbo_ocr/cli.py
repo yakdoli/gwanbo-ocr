@@ -11,12 +11,16 @@ app = typer.Typer(help="PDF OCR and metadata extraction pipeline for Gwanbo arti
 manifest_app = typer.Typer(help="Build immutable PDF manifests from source artifacts.")
 pdf_app = typer.Typer(help="Classify PDFs, extract text layouts, and render pages.")
 bench_app = typer.Typer(help="Run and score OCR/VLM benchmarks.")
-peer_app = typer.Typer(help="Multi-method peer review: compare native text, pdfplumber, MarkItDown, PaddleOCR, VLM.")
+peer_app = typer.Typer(
+    help="Multi-method peer review: compare native text, pdfplumber, MarkItDown, PaddleOCR, VLM."
+)
+strategy_app = typer.Typer(help="Cluster PDF layouts and evaluate parsing strategies.")
 
 app.add_typer(manifest_app, name="manifest")
 app.add_typer(pdf_app, name="pdf")
 app.add_typer(bench_app, name="bench")
 app.add_typer(peer_app, name="peer")
+app.add_typer(strategy_app, name="strategy")
 
 
 @manifest_app.command("build")
@@ -25,7 +29,9 @@ def manifest_build(
     output: Path = typer.Option(..., help="Output JSONL manifest path."),
     sources: str = typer.Option("pety,searchThema", help="Comma-separated sources to include."),
     limit: int | None = typer.Option(None, help="Maximum manifest rows to write."),
-    include_issue_pdfs: bool = typer.Option(True, help="Include searchThema issue_pdfs fallback artifacts."),
+    include_issue_pdfs: bool = typer.Option(
+        True, help="Include searchThema issue_pdfs fallback artifacts."
+    ),
 ) -> None:
     """Build a compact JSONL manifest from /root/peti artifacts."""
     from gwanbo_ocr.manifest import build_peti_manifest
@@ -132,6 +138,39 @@ def pdf_render(
     _echo_summary(summary)
 
 
+@pdf_app.command("profile")
+def pdf_profile(
+    input: Path = typer.Option(..., "--input", help="Input PDF manifest JSONL."),
+    output: Path = typer.Option(..., help="Output profile directory."),
+    max_pages: int = typer.Option(3, help="Pages to inspect per PDF; 0 means all pages."),
+    workers: int = typer.Option(1, help="Worker count."),
+    sample_per_bucket: int = typer.Option(
+        20,
+        "--sample-per-bucket",
+        help="Maximum rows to profile per theme/year/category bucket; 0 means all rows.",
+    ),
+    table_strategy: str = typer.Option("auto", help="pdfplumber table extraction strategy."),
+    limit: int | None = typer.Option(None, help="Maximum input rows to inspect before sampling."),
+    only_missing: bool = typer.Option(False, help="Skip rows with existing sidecars."),
+    force: bool = typer.Option(False, help="Regenerate existing sidecars."),
+) -> None:
+    """Build lightweight PDF feature profiles for layout clustering."""
+    from gwanbo_ocr.pdf.profile import profile_manifest
+
+    summary = profile_manifest(
+        manifest_path=input,
+        output_dir=output,
+        max_pages=None if max_pages == 0 else max_pages,
+        workers=workers,
+        sample_per_bucket=None if sample_per_bucket == 0 else sample_per_bucket,
+        table_strategy=table_strategy,
+        limit=limit,
+        only_missing=only_missing,
+        force=force,
+    )
+    _echo_summary(summary)
+
+
 @bench_app.command("run")
 def bench_run(
     suite: str = typer.Option("smoke", help="Suite name or sample JSONL path."),
@@ -169,17 +208,59 @@ def bench_score(
     _echo_summary(summary)
 
 
+@strategy_app.command("cluster")
+def strategy_cluster(
+    profiles: Path = typer.Option(..., "--profiles", help="Input pdf profile manifest JSONL."),
+    output: Path = typer.Option(..., help="Output cluster directory."),
+    sample_keys: int = typer.Option(10, help="Representative PDF keys to keep per cluster."),
+) -> None:
+    """Cluster PDF profiles and assign deterministic parsing strategies."""
+    from gwanbo_ocr.strategy import cluster_profiles
+
+    summary = cluster_profiles(
+        profiles_path=profiles,
+        output_dir=output,
+        sample_keys=sample_keys,
+    )
+    _echo_summary(summary)
+
+
+@strategy_app.command("evaluate")
+def strategy_evaluate(
+    clusters: Path = typer.Option(..., "--clusters", help="Input layout cluster manifest JSONL."),
+    output: Path = typer.Option(..., help="Output strategy evaluation directory."),
+    limit: int | None = typer.Option(None, help="Maximum clusters to evaluate."),
+) -> None:
+    """Evaluate assigned parsing strategies using available cluster metrics."""
+    from gwanbo_ocr.strategy import evaluate_clusters
+
+    summary = evaluate_clusters(
+        clusters_path=clusters,
+        output_dir=output,
+        limit=limit,
+    )
+    _echo_summary(summary)
+
+
 @peer_app.command("run")
 def peer_run(
-    manifest: Path = typer.Option(..., "--manifest", help="Input JSONL manifest (from manifest build)."),
+    manifest: Path = typer.Option(
+        ..., "--manifest", help="Input JSONL manifest (from manifest build)."
+    ),
     output: Path = typer.Option(..., help="Output directory for peer-review sidecars and index."),
-    vlm_base_url: str | None = typer.Option(None, "--vlm-base-url", help="OpenAI-compatible VLM base URL (enables VLM peer)."),
-    vlm_model: str | None = typer.Option(None, "--vlm-model", help="Model name/alias for the VLM runner."),
+    vlm_base_url: str | None = typer.Option(
+        None, "--vlm-base-url", help="OpenAI-compatible VLM base URL (enables VLM peer)."
+    ),
+    vlm_model: str | None = typer.Option(
+        None, "--vlm-model", help="Model name/alias for the VLM runner."
+    ),
     vlm_api_key: str = typer.Option("dummy", "--vlm-api-key", help="API key for the VLM endpoint."),
     run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
     skip_markitdown: bool = typer.Option(False, "--skip-markitdown", help="Skip MarkItDown peer."),
     skip_pdfplumber: bool = typer.Option(False, "--skip-pdfplumber", help="Skip pdfplumber peer."),
-    skip_native: bool = typer.Option(False, "--skip-native", help="Skip native text extraction peer."),
+    skip_native: bool = typer.Option(
+        False, "--skip-native", help="Skip native text extraction peer."
+    ),
     max_pages: int = typer.Option(1, help="Pages to process per PDF; 0 means all."),
     dpi: int = typer.Option(200, help="Render DPI for image-based OCR peers."),
     workers: int = typer.Option(1, help="Parallel worker count."),
@@ -214,7 +295,9 @@ def peer_run(
 
 @peer_app.command("score")
 def peer_score(
-    review_dir: Path = typer.Option(..., "--review-dir", help="Peer review output directory (from peer run)."),
+    review_dir: Path = typer.Option(
+        ..., "--review-dir", help="Peer review output directory (from peer run)."
+    ),
     output: Path = typer.Option(..., help="Report output directory."),
 ) -> None:
     """Aggregate peer review scores across all sidecars and write a report."""
@@ -241,11 +324,7 @@ def peer_score(
             if isinstance(score, dict) and score.get("critical_token_f1") is not None:
                 f1_by_method.setdefault(name, []).append(float(score["critical_token_f1"]))
 
-    avg_f1 = {
-        name: round(sum(vals) / len(vals), 4)
-        for name, vals in f1_by_method.items()
-        if vals
-    }
+    avg_f1 = {name: round(sum(vals) / len(vals), 4) for name, vals in f1_by_method.items() if vals}
     report = {
         "total": len(index),
         "by_best_method": method_counts,

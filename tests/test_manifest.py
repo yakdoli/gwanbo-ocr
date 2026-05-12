@@ -11,24 +11,8 @@ from gwanbo_ocr.manifest import build_manifest, iter_manifest_entries, write_man
 
 def test_build_manifest_merges_peti_metadata_read_only(tmp_path: Path) -> None:
     peti = tmp_path / "peti"
-    search_pdf = (
-        peti
-        / "artifacts"
-        / "searchThema"
-        / "pdfs"
-        / "2001"
-        / "20010102"
-        / "search-id.pdf"
-    )
-    pety_pdf = (
-        peti
-        / "artifacts"
-        / "pety"
-        / "pdfs"
-        / "1999"
-        / "19990103"
-        / "pety-id.pdf"
-    )
+    search_pdf = peti / "artifacts" / "searchThema" / "pdfs" / "2001" / "20010102" / "search-id.pdf"
+    pety_pdf = peti / "artifacts" / "pety" / "pdfs" / "1999" / "19990103" / "pety-id.pdf"
     search_pdf.parent.mkdir(parents=True)
     pety_pdf.parent.mkdir(parents=True)
     search_pdf.write_bytes(b"%PDF search")

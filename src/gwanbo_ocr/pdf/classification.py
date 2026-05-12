@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .integrity import validate_pdf_integrity
-from .io import read_jsonl, write_json_atomic, write_jsonl_atomic
+from .io import (
+    pdf_key_from_row,
+    read_jsonl,
+    resolve_pdf_path,
+    write_json_atomic,
+    write_jsonl_atomic,
+)
 from .text import analyze_pdf_text
 
 PDF_CLASSES = {
@@ -107,18 +113,29 @@ def classify_pdf_from_metadata(
 ) -> dict[str, Any]:
     """Classify from precomputed metadata without touching the filesystem."""
     reasons: list[str] = []
-    if integrity is not None and not integrity.get("valid", integrity.get("overall_status") == "pass"):
-        return {"document_class": "invalid_pdf", "confidence": 0.95, "reasons": _failed_checks(integrity)}
+    if integrity is not None and not integrity.get(
+        "valid", integrity.get("overall_status") == "pass"
+    ):
+        return {
+            "document_class": "invalid_pdf",
+            "confidence": 0.95,
+            "reasons": _failed_checks(integrity),
+        }
     if text is not None and text.get("status") == "error":
-        return {"document_class": "error", "confidence": 0.6, "reasons": [str(text.get("error") or "text_error")]}
+        return {
+            "document_class": "error",
+            "confidence": 0.6,
+            "reasons": [str(text.get("error") or "text_error")],
+        }
     if text is not None and text.get("text_extractable"):
         layout_class = _layout_class(layout)
         if layout_class:
             reasons.append(f"layout:{layout_class}")
         reasons.append("extractable_text_layer")
+        layout_confidence = layout.get("confidence") if isinstance(layout, dict) else None
         return {
             "document_class": layout_class or "text_pdf",
-            "confidence": float((layout or {}).get("confidence") or 0.9) if layout_class else 0.9,
+            "confidence": float(layout_confidence or 0.9) if layout_class else 0.9,
             "text_extractable": True,
             "reasons": reasons,
         }
@@ -133,15 +150,21 @@ def classify_pdf_from_metadata(
 
 
 def _failed_checks(integrity: dict[str, Any]) -> list[str]:
-    checks = integrity.get("checks") if isinstance(integrity.get("checks"), dict) else {}
-    reasons = [name for name, check in checks.items() if isinstance(check, dict) and check.get("status") == "fail"]
+    checks_payload = integrity.get("checks")
+    checks: dict[str, Any] = checks_payload if isinstance(checks_payload, dict) else {}
+    reasons = [
+        name
+        for name, check in checks.items()
+        if isinstance(check, dict) and check.get("status") == "fail"
+    ]
     return reasons or ["integrity_failed"]
 
 
 def _layout_class(layout: dict[str, Any] | None) -> str:
     if not isinstance(layout, dict):
         return ""
-    nested = layout.get("layout") if isinstance(layout.get("layout"), dict) else layout
+    nested_payload = layout.get("layout")
+    nested: dict[str, Any] = nested_payload if isinstance(nested_payload, dict) else layout
     value = str(nested.get("document_class") or "")
     return "" if value in {"", "unknown_text", "error"} else value
 
@@ -252,7 +275,8 @@ def _decision_from_classification(classification: dict[str, Any]) -> dict[str, A
     return {
         "document_kind": doc_class,
         "text_extractable": text_extractable,
-        "needs_ocr": doc_class in {"image_or_unextractable_pdf", "missing_pdf", "invalid_pdf", "error"},
+        "needs_ocr": doc_class
+        in {"image_or_unextractable_pdf", "missing_pdf", "invalid_pdf", "error"},
         "layout_eligible": doc_class == "text_pdf" and text_extractable,
         "preferred_text_source": "pdf_text" if text_extractable else None,
         "confidence": classification.get("confidence", 0.0),
@@ -260,9 +284,19 @@ def _decision_from_classification(classification: dict[str, Any]) -> dict[str, A
     }
 
 
-def _compact_classification_manifest_row(sidecar: dict[str, Any], sidecar_path: Path) -> dict[str, Any]:
-    decision = sidecar.get("decision") if isinstance(sidecar.get("decision"), dict) else {}
-    native_text = sidecar.get("native_text") if isinstance(sidecar.get("native_text"), dict) else {}
+def _compact_classification_manifest_row(
+    sidecar: dict[str, Any], sidecar_path: Path
+) -> dict[str, Any]:
+    decision_payload = sidecar.get("decision")
+    decision: dict[str, Any] = decision_payload if isinstance(decision_payload, dict) else {}
+    native_text_payload = sidecar.get("native_text")
+    native_text: dict[str, Any] = (
+        native_text_payload if isinstance(native_text_payload, dict) else {}
+    )
+    classification_payload = sidecar.get("classification")
+    classification: dict[str, Any] = (
+        classification_payload if isinstance(classification_payload, dict) else {}
+    )
     return {
         "schema_version": "pdf-classification-manifest/v1",
         "pdf_key": sidecar.get("pdf_key"),
@@ -277,27 +311,16 @@ def _compact_classification_manifest_row(sidecar: dict[str, Any], sidecar_path: 
         "layout_eligible": decision.get("layout_eligible"),
         "pages": native_text.get("pages"),
         "total_chars": native_text.get("total_chars"),
-        "error": (sidecar.get("classification") or {}).get("error")
-        if isinstance(sidecar.get("classification"), dict)
-        else None,
+        "error": classification.get("error"),
     }
 
 
 def _row_pdf_path(row: dict[str, Any]) -> Path:
-    for key in ("pdf_abs_path", "pdf_path", "path"):
-        value = str(row.get(key) or "").strip()
-        if value:
-            return Path(value)
-    return Path("")
+    return resolve_pdf_path(row, peti_root="/root/peti")
 
 
 def _row_pdf_key(row: dict[str, Any]) -> str:
-    for key in ("pdf_key", "metadata_key", "id"):
-        value = str(row.get(key) or "").strip()
-        if value:
-            return value.replace("\\", "/").strip("/")
-    path_text = str(row.get("pdf_path") or row.get("pdf_abs_path") or "unknown")
-    return Path(path_text).with_suffix("").as_posix().strip("/") or "unknown"
+    return pdf_key_from_row(row)
 
 
 def _read_json_dict(path: Path) -> dict[str, Any] | None:

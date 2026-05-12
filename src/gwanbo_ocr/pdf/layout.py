@@ -21,6 +21,7 @@ from .io import (
     read_json,
     read_jsonl,
     resolve_path,
+    resolve_pdf_path,
     write_json_atomic,
     write_jsonl_atomic,
 )
@@ -152,15 +153,23 @@ def extract_page_tables(
     strategy_profiles = table_strategy_profiles(table_strategy, table_settings)
     if hasattr(page, "find_tables"):
         for strategy_name, settings in strategy_profiles:
-            found_tables = page.find_tables(table_settings=settings) if settings else page.find_tables()
+            found_tables = (
+                page.find_tables(table_settings=settings) if settings else page.find_tables()
+            )
             for table in found_tables or []:
                 rows = safe_call(table.extract) or []
-                tables.append(table_rows_to_json(rows, page_index, 0, getattr(table, "bbox", None), strategy_name))
+                tables.append(
+                    table_rows_to_json(
+                        rows, page_index, 0, getattr(table, "bbox", None), strategy_name
+                    )
+                )
         return renumber_tables(dedupe_tables(tables), page_index)
 
     if hasattr(page, "extract_tables"):
         for strategy_name, settings in strategy_profiles:
-            found_rows = page.extract_tables(table_settings=settings) if settings else page.extract_tables()
+            found_rows = (
+                page.extract_tables(table_settings=settings) if settings else page.extract_tables()
+            )
             for rows in found_rows or []:
                 tables.append(table_rows_to_json(rows, page_index, 0, None, strategy_name))
     return renumber_tables(dedupe_tables(tables), page_index)
@@ -184,7 +193,10 @@ def table_rows_to_json(
         for index in range(column_count)
     ]
     records = [
-        {column["key"]: row[index] if index < len(row) else "" for index, column in enumerate(columns)}
+        {
+            column["key"]: row[index] if index < len(row) else ""
+            for index, column in enumerate(columns)
+        }
         for row in data_rows
     ]
     text_chars = table_text_chars(padded_rows)
@@ -328,7 +340,12 @@ def table_signature(table: dict[str, Any]) -> str:
 
 
 def table_iou(first: Any, second: Any) -> float:
-    if not isinstance(first, list) or not isinstance(second, list) or len(first) != 4 or len(second) != 4:
+    if (
+        not isinstance(first, list)
+        or not isinstance(second, list)
+        or len(first) != 4
+        or len(second) != 4
+    ):
         return 0.0
     x1 = max(float(first[0]), float(second[0]))
     y1 = max(float(first[1]), float(second[1]))
@@ -337,8 +354,12 @@ def table_iou(first: Any, second: Any) -> float:
     intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
     if intersection <= 0:
         return 0.0
-    first_area = max(0.0, float(first[2]) - float(first[0])) * max(0.0, float(first[3]) - float(first[1]))
-    second_area = max(0.0, float(second[2]) - float(second[0])) * max(0.0, float(second[3]) - float(second[1]))
+    first_area = max(0.0, float(first[2]) - float(first[0])) * max(
+        0.0, float(first[3]) - float(first[1])
+    )
+    second_area = max(0.0, float(second[2]) - float(second[0])) * max(
+        0.0, float(second[3]) - float(second[1])
+    )
     union = first_area + second_area - intersection
     return intersection / union if union else 0.0
 
@@ -349,7 +370,9 @@ def renumber_tables(tables: list[dict[str, Any]], page_index: int) -> list[dict[
     return tables
 
 
-def classify_layout(page_metrics: list[dict[str, Any]], tables: list[dict[str, Any]]) -> dict[str, Any]:
+def classify_layout(
+    page_metrics: list[dict[str, Any]], tables: list[dict[str, Any]]
+) -> dict[str, Any]:
     """Classify document layout from page metrics and extracted tables."""
     if not page_metrics:
         return empty_layout("unknown_text")
@@ -362,10 +385,14 @@ def classify_layout(page_metrics: list[dict[str, Any]], tables: list[dict[str, A
     word_count = sum_metric(page_metrics, "word_count")
     estimated_columns = max(int(metric.get("estimated_columns") or 0) for metric in page_metrics)
     table_text_ratio = ratio(table_chars, total_chars)
-    form_score = ratio(sum(float(metric.get("form_score") or 0.0) for metric in page_metrics), pages_scanned)
+    form_score = ratio(
+        sum(float(metric.get("form_score") or 0.0) for metric in page_metrics), pages_scanned
+    )
     text_quality = aggregate_text_quality(page_metrics)
     page_classes = [classify_page(metric) for metric in page_metrics]
-    table_strategies = sorted({str(table.get("extraction_strategy") or "unknown") for table in tables})
+    table_strategies = sorted(
+        {str(table.get("extraction_strategy") or "unknown") for table in tables}
+    )
 
     document_class = "unknown_text"
     confidence = 0.5
@@ -453,7 +480,9 @@ def generate_layout_sidecars(
         summary["tables"] += len(metadata.get("tables") or [])
         if metadata.get("status") == "error":
             summary["errors"] += 1
-        layout_counts[str((metadata.get("layout") or {}).get("document_class") or "unknown_text")] += 1
+        layout_counts[
+            str((metadata.get("layout") or {}).get("document_class") or "unknown_text")
+        ] += 1
 
     summary["by_layout_class"] = dict(sorted(layout_counts.items()))
     summary["completed_at"] = iso_now()
@@ -502,7 +531,9 @@ def generate_layout_manifest(
             summary["skipped_not_eligible"] += 1
             continue
         summary["eligible"] += 1
-        pdf_key = str(row.get("pdf_key") or row.get("id") or Path(str(row.get("pdf_path") or "unknown")).stem)
+        pdf_key = str(
+            row.get("pdf_key") or row.get("id") or Path(str(row.get("pdf_path") or "unknown")).stem
+        )
         sidecar_path = items_dir / f"{pdf_key}.json"
         if sidecar_path.exists() and only_missing and not force:
             summary["skipped_existing"] += 1
@@ -511,7 +542,7 @@ def generate_layout_manifest(
                 rows.append(compact_index_metadata(existing, sidecar_path))
             continue
         metadata = analyze_pdf_layout(
-            Path(str(row.get("pdf_path") or "")),
+            resolve_pdf_path(row, peti_root="/root/peti"),
             max_pages=max_pages,
             table_strategy=table_strategy,
         )
@@ -530,7 +561,9 @@ def generate_layout_manifest(
         summary["tables"] += len(metadata.get("tables") or [])
         if metadata.get("status") == "error":
             summary["errors"] += 1
-        layout_counts[str((metadata.get("layout") or {}).get("document_class") or "unknown_text")] += 1
+        layout_counts[
+            str((metadata.get("layout") or {}).get("document_class") or "unknown_text")
+        ] += 1
 
     summary["by_layout_class"] = dict(sorted(layout_counts.items()))
     manifest_path = output / "manifest.jsonl"
@@ -540,13 +573,17 @@ def generate_layout_manifest(
     return summary
 
 
-def load_layout_sidecar(path_text: str | Path, base_dir: Path | str | None = None) -> dict[str, Any] | None:
+def load_layout_sidecar(
+    path_text: str | Path, base_dir: Path | str | None = None
+) -> dict[str, Any] | None:
     """Resolve and read a layout sidecar JSON file."""
     payload = read_json(resolve_path(path_text, base_dir))
     return payload if isinstance(payload, dict) else None
 
 
-def compact_index_metadata(metadata: dict[str, Any], sidecar_path: Path | str | None = None) -> dict[str, Any]:
+def compact_index_metadata(
+    metadata: dict[str, Any], sidecar_path: Path | str | None = None
+) -> dict[str, Any]:
     layout = metadata.get("layout") if isinstance(metadata.get("layout"), dict) else {}
     compact = {
         "status": metadata.get("status"),
@@ -757,7 +794,11 @@ def iso_now() -> str:
 
 @contextlib.contextmanager
 def _alarm_timeout(seconds: int, message: str) -> Iterator[None]:
-    if seconds <= 0 or not hasattr(signal, "SIGALRM") or threading.current_thread() is not threading.main_thread():
+    if (
+        seconds <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
         yield
         return
 

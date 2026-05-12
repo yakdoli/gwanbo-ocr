@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -9,6 +11,7 @@ from gwanbo_ocr.bench import (
     RunRecord,
     format_throughput_report,
     resolve_runner_model,
+    run_benchmark,
     summarize_throughput,
 )
 
@@ -76,8 +79,49 @@ vision_language_models:
         encoding="utf-8",
     )
 
-    assert (
-        resolve_runner_model("qwen36_baseline", config_path=config)
-        == "Qwen/Qwen3.6-35B-A3B-FP8"
-    )
+    assert resolve_runner_model("qwen36_baseline", config_path=config) == "Qwen/Qwen3.6-35B-A3B-FP8"
     assert resolve_runner_model("direct-model", config_path=config) == "direct-model"
+
+
+def test_run_benchmark_honors_concurrency_option(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    suite = tmp_path / "suite.jsonl"
+    suite.write_text(
+        "\n".join(
+            json.dumps({"sample_id": f"s{i}", "image_path": str(image), "page_number": 1})
+            for i in range(3)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FakeResult:
+        text = "ok"
+        data = {"text": "ok"}
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeRunner:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeRunner)
+
+    summary = run_benchmark(
+        suite=str(suite),
+        runner_name="direct-model",
+        run_dir=tmp_path / "run",
+        concurrency=2,
+    )
+
+    records = (tmp_path / "run" / "results.jsonl").read_text(encoding="utf-8").splitlines()
+    assert summary["concurrency"] == 2
+    assert summary["tasks"] == 3
+    assert len(records) == 3

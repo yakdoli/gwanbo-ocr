@@ -105,7 +105,12 @@ class PdfSessionBTests(unittest.TestCase):
         self.assertEqual(broken["checks"]["pdf_eof"]["status"], "fail")
 
     def test_table_normalization_uses_stable_columns(self) -> None:
-        rows = [[" Name\n", "Name", None], ["Alice", " Seoul ", 10], [None, None, None], ["Bob", "Busan"]]
+        rows = [
+            [" Name\n", "Name", None],
+            ["Alice", " Seoul ", 10],
+            [None, None, None],
+            ["Bob", "Busan"],
+        ]
 
         self.assertEqual(
             normalize_table_rows(rows),
@@ -140,7 +145,9 @@ class PdfSessionBTests(unittest.TestCase):
             "table_text_ratio": 0.0,
         }
 
-        heavy = classify_layout([{**base_metric, "table_count": 1, "table_chars": 80}], [{"table_id": "t1"}])
+        heavy = classify_layout(
+            [{**base_metric, "table_count": 1, "table_chars": 80}], [{"table_id": "t1"}]
+        )
         body = classify_layout([base_metric], [])
         columns = classify_layout([{**base_metric, "estimated_columns": 2}], [])
         tables = extract_page_tables(FakePage(), page_index=0, table_strategy="auto")
@@ -149,7 +156,9 @@ class PdfSessionBTests(unittest.TestCase):
         self.assertEqual(body["document_class"], "body_text")
         self.assertEqual(columns["document_class"], "multi_column_text")
         self.assertEqual(len(tables), 1)
-        self.assertEqual(tables[0]["records"][0], {"col_1": "Alice", "col_2": "Seoul", "col_3": "10"})
+        self.assertEqual(
+            tables[0]["records"][0], {"col_1": "Alice", "col_2": "Seoul", "col_3": "10"}
+        )
         self.assertEqual(tables[0]["alternate_strategies"], ["lines", "lines_strict", "text"])
 
     def test_document_classification_uses_integrity_and_text_metadata(self) -> None:

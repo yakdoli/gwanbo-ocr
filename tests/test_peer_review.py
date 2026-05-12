@@ -182,7 +182,10 @@ class TestExtractVlmOcr:
     def test_error_when_render_fails(self, tmp_path: Path) -> None:
         pdf = tmp_path / "missing.pdf"
         runner = self._make_runner()
-        with patch("gwanbo_ocr.peer_review._render_pages", return_value={"status": "error", "error": "render failed"}):
+        with patch(
+            "gwanbo_ocr.peer_review._render_pages",
+            return_value={"status": "error", "error": "render failed"},
+        ):
             result = extract_vlm_ocr(pdf, image_dir=tmp_path / "img", runner=runner)
         assert result["status"] == "error"
 
@@ -195,10 +198,30 @@ class TestExtractVlmOcr:
 class TestReviewExtractionPeers:
     def _peers(self) -> dict[str, dict[str, Any]]:
         return {
-            "native_text": {"status": "ok", "text_chars": 50, "text_extractable": True, "sample_text": "native text sample"},
-            "pdfplumber": {"status": "ok", "text_chars": 60, "text_extractable": True, "sample_text": "pdfplumber sample text"},
-            "markitdown": {"status": "error", "text_chars": 0, "text_extractable": False, "error": "bad convert"},
-            "vlm_ocr": {"status": "ok", "text_chars": 200, "text_extractable": True, "sample_text": "vlm ocr output from the document"},
+            "native_text": {
+                "status": "ok",
+                "text_chars": 50,
+                "text_extractable": True,
+                "sample_text": "native text sample",
+            },
+            "pdfplumber": {
+                "status": "ok",
+                "text_chars": 60,
+                "text_extractable": True,
+                "sample_text": "pdfplumber sample text",
+            },
+            "markitdown": {
+                "status": "error",
+                "text_chars": 0,
+                "text_extractable": False,
+                "error": "bad convert",
+            },
+            "vlm_ocr": {
+                "status": "ok",
+                "text_chars": 200,
+                "text_extractable": True,
+                "sample_text": "vlm ocr output from the document",
+            },
         }
 
     def test_chooses_highest_char_count(self) -> None:
@@ -222,7 +245,12 @@ class TestReviewExtractionPeers:
 
     def test_peer_summaries_include_all_methods(self) -> None:
         review = review_extraction_peers(self._peers())
-        assert set(review["peer_summaries"]) == {"native_text", "pdfplumber", "markitdown", "vlm_ocr"}
+        assert set(review["peer_summaries"]) == {
+            "native_text",
+            "pdfplumber",
+            "markitdown",
+            "vlm_ocr",
+        }
 
 
 class TestDecideExtraction:
@@ -277,7 +305,11 @@ class TestScoreAgainstMetadata:
     def test_ranked_by_f1_orders_methods(self) -> None:
         peers = {
             "method_a": {"status": "ok", "sample_text": "기획재정부 공고", "text_chars": 10},
-            "method_b": {"status": "ok", "sample_text": "무관한 텍스트 irrelevant text", "text_chars": 20},
+            "method_b": {
+                "status": "ok",
+                "sample_text": "무관한 텍스트 irrelevant text",
+                "text_chars": 20,
+            },
         }
         metadata = {"title": "기획재정부 예산 공고", "agency": "기획재정부"}
         scores = score_against_metadata(peers, metadata)
@@ -312,8 +344,28 @@ class TestAnalyzePdfPeerReview:
 
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", fake_native),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={"status": "skipped", "text_chars": 0, "skip_reason": "off", "text_extractable": False, "sample_text": "", "error": None}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={"status": "skipped", "text_chars": 0, "skip_reason": "off", "text_extractable": False, "sample_text": "", "error": None}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={
+                    "status": "skipped",
+                    "text_chars": 0,
+                    "skip_reason": "off",
+                    "text_extractable": False,
+                    "sample_text": "",
+                    "error": None,
+                },
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={
+                    "status": "skipped",
+                    "text_chars": 0,
+                    "skip_reason": "off",
+                    "text_extractable": False,
+                    "sample_text": "",
+                    "error": None,
+                },
+            ),
         ):
             report = analyze_pdf_peer_review(
                 pdf,
@@ -344,8 +396,28 @@ class TestAnalyzePdfPeerReview:
 
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={"status": "skipped", "text_chars": 0, "skip_reason": "off", "text_extractable": False, "sample_text": "", "error": None}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={"status": "skipped", "text_chars": 0, "skip_reason": "off", "text_extractable": False, "sample_text": "", "error": None}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={
+                    "status": "skipped",
+                    "text_chars": 0,
+                    "skip_reason": "off",
+                    "text_extractable": False,
+                    "sample_text": "",
+                    "error": None,
+                },
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={
+                    "status": "skipped",
+                    "text_chars": 0,
+                    "skip_reason": "off",
+                    "text_extractable": False,
+                    "sample_text": "",
+                    "error": None,
+                },
+            ),
         ):
             report = analyze_pdf_peer_review(
                 pdf,
@@ -362,12 +434,25 @@ class TestAnalyzePdfPeerReview:
 
     def test_report_status_error_when_all_peers_fail(self, tmp_path: Path) -> None:
         pdf = _write_pdf(tmp_path / "doc.pdf")
-        failed = {"status": "error", "text_chars": 0, "text_extractable": False, "sample_text": "", "error": "oops", "method": "x"}
+        failed = {
+            "status": "error",
+            "text_chars": 0,
+            "text_extractable": False,
+            "sample_text": "",
+            "error": "oops",
+            "method": "x",
+        }
 
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", return_value=failed),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={**failed, "status": "skipped", "skip_reason": "off"}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={**failed, "status": "skipped", "skip_reason": "off"}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={**failed, "status": "skipped", "skip_reason": "off"},
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={**failed, "status": "skipped", "skip_reason": "off"},
+            ),
         ):
             report = analyze_pdf_peer_review(
                 pdf,
@@ -409,8 +494,14 @@ class TestRunPeerReviewManifest:
         }
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
         ):
             summary = run_peer_review_manifest(
                 manifest_path=manifest,
@@ -441,7 +532,10 @@ class TestRunPeerReviewManifest:
         sidecar.parent.mkdir(parents=True)
         sidecar.write_text("{}", encoding="utf-8")
 
-        with patch("gwanbo_ocr.peer_review.extract_native_text", side_effect=AssertionError("should not be called")):
+        with patch(
+            "gwanbo_ocr.peer_review.extract_native_text",
+            side_effect=AssertionError("should not be called"),
+        ):
             summary = run_peer_review_manifest(
                 manifest_path=manifest,
                 output_dir=output_dir,
@@ -458,13 +552,28 @@ class TestRunPeerReviewManifest:
     def test_limit_restricts_rows_processed(self, tmp_path: Path) -> None:
         pdfs = [_write_pdf(tmp_path / f"pdf{i}" / "doc.pdf") for i in range(5)]
         manifest = tmp_path / "manifest.jsonl"
-        self._write_manifest(manifest, [{"id": f"item-{i}", "pdf_path": str(p)} for i, p in enumerate(pdfs)])
+        self._write_manifest(
+            manifest, [{"id": f"item-{i}", "pdf_path": str(p)} for i, p in enumerate(pdfs)]
+        )
 
-        fake_peer = {"status": "error", "text_chars": 0, "text_extractable": False, "sample_text": "", "error": "x", "method": "t"}
+        fake_peer = {
+            "status": "error",
+            "text_chars": 0,
+            "text_extractable": False,
+            "sample_text": "",
+            "error": "x",
+            "method": "t",
+        }
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
         ):
             summary = run_peer_review_manifest(
                 manifest_path=manifest,
@@ -502,16 +611,37 @@ class TestPeerCli:
         manifest.write_text(json.dumps({"id": "t1", "pdf_path": str(pdf)}) + "\n", encoding="utf-8")
         output = tmp_path / "out"
 
-        fake_peer = {"status": "ok", "method": "m", "text_extractable": True, "text_chars": 5, "sample_text": "hi", "error": None}
+        fake_peer = {
+            "status": "ok",
+            "method": "m",
+            "text_extractable": True,
+            "text_chars": 5,
+            "sample_text": "hi",
+            "error": None,
+        }
         with (
             patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
-            patch("gwanbo_ocr.peer_review.extract_pdfplumber", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
-            patch("gwanbo_ocr.peer_review.extract_markitdown", return_value={**fake_peer, "status": "skipped", "skip_reason": "off"}),
+            patch(
+                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
+            patch(
+                "gwanbo_ocr.peer_review.extract_markitdown",
+                return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
+            ),
         ):
             result = CliRunner().invoke(
                 cli_app,
-                ["peer", "run", "--manifest", str(manifest), "--output", str(output),
-                 "--skip-pdfplumber", "--skip-markitdown"],
+                [
+                    "peer",
+                    "run",
+                    "--manifest",
+                    str(manifest),
+                    "--output",
+                    str(output),
+                    "--skip-pdfplumber",
+                    "--skip-markitdown",
+                ],
             )
 
         assert result.exit_code == 0, result.output

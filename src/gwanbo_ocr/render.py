@@ -12,9 +12,12 @@ import io
 import json
 import os
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from gwanbo_ocr.pdf.io import pdf_key_from_row, resolve_pdf_path
 
 ColorSpace = Literal["rgb", "gray", "cmyk"]
 PdfInput = str | Path | bytes | bytearray | memoryview
@@ -56,7 +59,7 @@ class RenderedPage:
 
 def _import_fitz() -> Any:
     try:
-        import fitz  # type: ignore[import-not-found]
+        import fitz  # type: ignore[import-not-found,import-untyped]
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise RuntimeError(
             "PyMuPDF is required for PDF rendering. Install it with `pip install pymupdf`."
@@ -319,52 +322,38 @@ def render_manifest(
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Render PDF pages referenced by a JSONL manifest into PNG files."""
-    del workers
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    input_rows = [
+        (index, row)
+        for index, row in enumerate(_read_jsonl(manifest_path), start=1)
+        if isinstance(row, dict) and (limit is None or index <= limit)
+    ]
     rows: list[dict[str, Any]] = []
     counts = {"total_rows": 0, "rendered_pages": 0, "errors": 0}
 
-    for index, row in enumerate(_read_jsonl(manifest_path), start=1):
-        if limit is not None and index > limit:
-            break
-        if not isinstance(row, dict):
-            continue
+    tasks = [
+        {
+            "index": index,
+            "row": row,
+            "output_dir": str(output),
+            "dpi": dpi,
+            "max_long_edge": max_long_edge,
+            "max_pages": max_pages,
+        }
+        for index, row in input_rows
+    ]
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(_render_manifest_row, tasks))
+    else:
+        results = [_render_manifest_row(task) for task in tasks]
+
+    for result in results:
         counts["total_rows"] += 1
-        pdf_path = Path(str(row.get("pdf_path") or row.get("pdf_abs_path") or ""))
-        pdf_key = str(row.get("pdf_key") or row.get("sample_id") or row.get("id") or pdf_path.stem or f"row-{index}")
-        page_numbers = _selected_page_numbers(row, max_pages)
-        for page_number in page_numbers:
-            image_path = output / "pages" / pdf_key / f"page_{page_number:04d}.png"
-            record = {
-                "pdf_key": pdf_key,
-                "id": row.get("id"),
-                "pdf_path": str(pdf_path),
-                "page_number": page_number,
-                "image_path": str(image_path),
-                "dpi": dpi,
-                "max_long_edge": max_long_edge,
-            }
-            try:
-                rendered = render_pdf_page_result(pdf_path, page_number=page_number, dpi=dpi)
-                image = _resize_to_max_edge(rendered.image, max_long_edge)
-                image_path.parent.mkdir(parents=True, exist_ok=True)
-                image.save(image_path, format="PNG")
-                payload = image_path.read_bytes()
-                record.update(
-                    {
-                        "status": "ok",
-                        "width": image.width,
-                        "height": image.height,
-                        "image_sha256": hashlib.sha256(payload).hexdigest(),
-                        "size_bytes": len(payload),
-                    }
-                )
-                counts["rendered_pages"] += 1
-            except Exception as exc:  # noqa: BLE001
-                record.update({"status": "error", "error": str(exc)})
-                counts["errors"] += 1
-            rows.append(record)
+        counts["rendered_pages"] += int(result.get("rendered_pages") or 0)
+        counts["errors"] += int(result.get("errors") or 0)
+        rows.extend(result.get("rows") or [])
 
     manifest_out = output / "manifest.jsonl"
     _write_jsonl_atomic(manifest_out, rows)
@@ -373,10 +362,79 @@ def render_manifest(
         "input": str(manifest_path),
         "output_dir": str(output),
         "manifest": str(manifest_out),
+        "workers": max(1, workers),
         "counts": counts,
     }
     _write_json_atomic(output / "summary.json", summary)
     return summary
+
+
+def _render_manifest_row(task: dict[str, Any]) -> dict[str, Any]:
+    row = task["row"]
+    index = int(task["index"])
+    output = Path(str(task["output_dir"]))
+    dpi = int(task["dpi"])
+    max_long_edge = int(task["max_long_edge"])
+    max_pages = task.get("max_pages")
+    pdf_path = resolve_pdf_path(row, peti_root="/root/peti")
+    pdf_key = pdf_key_from_row(row, fallback=pdf_path.stem or f"row-{index}")
+    rows: list[dict[str, Any]] = []
+    rendered_pages = 0
+    errors = 0
+
+    try:
+        page_numbers = _selected_page_numbers(row, max_pages)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "rendered_pages": 0,
+            "errors": 1,
+            "rows": [
+                {
+                    "pdf_key": pdf_key,
+                    "id": row.get("id"),
+                    "pdf_path": str(pdf_path),
+                    "page_number": None,
+                    "image_path": "",
+                    "dpi": dpi,
+                    "max_long_edge": max_long_edge,
+                    "status": "error",
+                    "error": f"invalid_page_selection:{exc}",
+                }
+            ],
+        }
+
+    for page_number in page_numbers:
+        image_path = output / "pages" / pdf_key / f"page_{page_number:04d}.png"
+        record = {
+            "pdf_key": pdf_key,
+            "id": row.get("id"),
+            "pdf_path": str(pdf_path),
+            "page_number": page_number,
+            "image_path": str(image_path),
+            "dpi": dpi,
+            "max_long_edge": max_long_edge,
+        }
+        try:
+            rendered = render_pdf_page_result(pdf_path, page_number=page_number, dpi=dpi)
+            image = _resize_to_max_edge(rendered.image, max_long_edge)
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(image_path, format="PNG")
+            payload = image_path.read_bytes()
+            record.update(
+                {
+                    "status": "ok",
+                    "width": image.width,
+                    "height": image.height,
+                    "image_sha256": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+            )
+            rendered_pages += 1
+        except Exception as exc:  # noqa: BLE001
+            record.update({"status": "error", "error": str(exc)})
+            errors += 1
+        rows.append(record)
+    return {"rendered_pages": rendered_pages, "errors": errors, "rows": rows}
 
 
 def _selected_page_numbers(row: dict[str, Any], max_pages: int | None) -> list[int]:

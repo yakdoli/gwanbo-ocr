@@ -147,9 +147,7 @@ class JsonObjectStream:
     def _consume_char(self, expected: str) -> None:
         actual = self._peek_char()
         if actual != expected:
-            raise ValueError(
-                f"Expected {expected!r} in {self.path}, got {actual!r}"
-            )
+            raise ValueError(f"Expected {expected!r} in {self.path}, got {actual!r}")
         self.pos += 1
 
     def _decode_next(self) -> Any:
@@ -384,9 +382,14 @@ def _entry_from_metadata(
     validate_files: bool,
 ) -> ManifestEntry | None:
     item_id = _string(metadata.get("id") or metadata.get("toc_id") or metadata_key)
-    text_key, text_meta = text_index.get(item_id, ("", {}))
-    layout_key, layout_meta = layout_index.get(item_id, ("", {}))
-    pdf_info = metadata.get("pdf") if isinstance(metadata.get("pdf"), Mapping) else {}
+    text_lookup = text_index.get(item_id)
+    text_key = text_lookup[0] if text_lookup is not None else ""
+    text_meta: Mapping[str, Any] = text_lookup[1] if text_lookup is not None else {}
+    layout_lookup = layout_index.get(item_id)
+    layout_key = layout_lookup[0] if layout_lookup is not None else ""
+    layout_meta: Mapping[str, Any] = layout_lookup[1] if layout_lookup is not None else {}
+    pdf_payload = metadata.get("pdf")
+    pdf_info: Mapping[str, Any] = pdf_payload if isinstance(pdf_payload, Mapping) else {}
     pdf_path = _best_pdf_path(root, theme, metadata, text_meta)
     pdf_abs_path = str((root / pdf_path).resolve(strict=False)) if pdf_path else ""
     pdf_exists = Path(pdf_abs_path).is_file() if validate_files and pdf_abs_path else False
@@ -400,9 +403,11 @@ def _entry_from_metadata(
         if text_meta
         else _deep_get(metadata, ("ocr", "extracted_metadata", "text_extractable"))
     )
-    layout = layout_meta.get("layout") if isinstance(layout_meta.get("layout"), Mapping) else {}
-    layout_metrics = (
-        layout.get("metrics") if isinstance(layout.get("metrics"), Mapping) else {}
+    layout_payload = layout_meta.get("layout")
+    layout: Mapping[str, Any] = layout_payload if isinstance(layout_payload, Mapping) else {}
+    metrics_payload = layout.get("metrics")
+    layout_metrics: Mapping[str, Any] = (
+        metrics_payload if isinstance(metrics_payload, Mapping) else {}
     )
     ocr_meta = _deep_get(metadata, ("ocr", "extracted_metadata"))
     if not isinstance(ocr_meta, Mapping):
@@ -424,18 +429,12 @@ def _entry_from_metadata(
         pdf_abs_path=pdf_abs_path,
         pdf_status=_string(pdf_info.get("status") or text_meta.get("status")),
         pdf_exists=pdf_exists,
-        size_bytes=_optional_int(
-            text_meta.get("size_bytes") or pdf_info.get("size_bytes")
-        ),
+        size_bytes=_optional_int(text_meta.get("size_bytes") or pdf_info.get("size_bytes")),
         sha256=_string(pdf_info.get("sha256")),
         pages=_optional_int(text_meta.get("pages") or ocr_meta.get("pages")),
         text_extractable=text_extractable,
-        text_pages=_optional_int(
-            text_meta.get("text_pages") or ocr_meta.get("text_pages")
-        ),
-        total_chars=_optional_int(
-            text_meta.get("total_chars") or ocr_meta.get("total_chars")
-        ),
+        text_pages=_optional_int(text_meta.get("text_pages") or ocr_meta.get("text_pages")),
+        total_chars=_optional_int(text_meta.get("total_chars") or ocr_meta.get("total_chars")),
         scanned_pages=_optional_int(text_meta.get("scanned_pages")),
         page_error_count=_optional_int(text_meta.get("page_error_count")),
         layout_class=_string(layout.get("document_class")),
@@ -488,7 +487,8 @@ def _best_pdf_path(
     metadata: Mapping[str, Any],
     text_meta: Mapping[str, Any],
 ) -> str:
-    pdf_info = metadata.get("pdf") if isinstance(metadata.get("pdf"), Mapping) else {}
+    pdf_payload = metadata.get("pdf")
+    pdf_info: Mapping[str, Any] = pdf_payload if isinstance(pdf_payload, Mapping) else {}
     candidates = [
         text_meta.get("pdf_path"),
         text_meta.get("path"),

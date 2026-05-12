@@ -30,15 +30,17 @@ from typing import Any
 
 # Optional heavy dependencies — imported lazily so the module loads even when
 # the [pdf], [qwen], or [paddleocr] extras are not installed.
+_MarkItDown: Any
 try:
     from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found]
 except ImportError:
-    _MarkItDown = None  # type: ignore[assignment]
+    _MarkItDown = None
 
+_pdfplumber: Any
 try:
     import pdfplumber as _pdfplumber  # type: ignore[import-not-found]
 except ImportError:
-    _pdfplumber = None  # type: ignore[assignment]
+    _pdfplumber = None
 
 SAMPLE_CHARS_DEFAULT = 1200
 METHOD_PREFERENCE = {
@@ -190,9 +192,13 @@ def extract_paddle_ocr(
                 total_chars += len(text)
                 if text and len(" ".join(parts)) < sample_chars:
                     parts.append(text)
-                page_results.append({"page_index": page["page_index"], "status": "ok", "text_chars": len(text)})
+                page_results.append(
+                    {"page_index": page["page_index"], "status": "ok", "text_chars": len(text)}
+                )
             except Exception as exc:  # noqa: BLE001
-                page_results.append({"page_index": page["page_index"], "status": "error", "error": str(exc)})
+                page_results.append(
+                    {"page_index": page["page_index"], "status": "error", "error": str(exc)}
+                )
         return {
             "status": "ok",
             "method": "PaddleOCR",
@@ -233,21 +239,23 @@ def extract_vlm_ocr(
         page_results: list[dict[str, Any]] = []
         for page in rendered["pages"]:
             try:
-                result = runner.transcribe(
-                    Path(page["path"]), page_number=page["page_index"] + 1
-                )
+                result = runner.transcribe(Path(page["path"]), page_number=page["page_index"] + 1)
                 text = _normalize(result.text)
                 total_chars += len(text)
                 if text and len(" ".join(parts)) < sample_chars:
                     parts.append(text)
-                page_results.append({
-                    "page_index": page["page_index"],
-                    "status": "ok",
-                    "text_chars": len(text),
-                    "latency_ms": result.data.get("latency_ms"),
-                })
+                page_results.append(
+                    {
+                        "page_index": page["page_index"],
+                        "status": "ok",
+                        "text_chars": len(text),
+                        "latency_ms": result.data.get("latency_ms"),
+                    }
+                )
             except Exception as exc:  # noqa: BLE001
-                page_results.append({"page_index": page["page_index"], "status": "error", "error": str(exc)})
+                page_results.append(
+                    {"page_index": page["page_index"], "status": "error", "error": str(exc)}
+                )
         return {
             "status": "ok",
             "method": method_label,
@@ -303,11 +311,17 @@ def analyze_pdf_peer_review(
 
     if run_native_text:
         peers["native_text"] = extract_native_text(
-            pdf_path, max_pages=max_pages, sample_chars=sample_chars, timeout_seconds=timeout_seconds
+            pdf_path,
+            max_pages=max_pages,
+            sample_chars=sample_chars,
+            timeout_seconds=timeout_seconds,
         )
     if run_pdfplumber:
         peers["pdfplumber"] = extract_pdfplumber(
-            pdf_path, max_pages=max_pages, sample_chars=sample_chars, timeout_seconds=timeout_seconds
+            pdf_path,
+            max_pages=max_pages,
+            sample_chars=sample_chars,
+            timeout_seconds=timeout_seconds,
         )
     if run_markitdown:
         peers["markitdown"] = extract_markitdown(
@@ -488,7 +502,7 @@ def run_peer_review_manifest(
     progress_every: int = 0,
 ) -> dict[str, Any]:
     """Process a JSONL manifest and write peer-review sidecars + index."""
-    from gwanbo_ocr.pdf.io import read_jsonl, write_json_atomic
+    from gwanbo_ocr.pdf.io import read_jsonl, resolve_pdf_path, write_json_atomic
 
     vlm_runner = _make_vlm_runner(vlm_base_url, vlm_model, vlm_api_key) if vlm_base_url else None
 
@@ -523,27 +537,29 @@ def run_peer_review_manifest(
         if limit is not None and summary["total"] >= limit:
             break
         summary["total"] += 1
-        pdf_path_text = str(row.get("pdf_path") or row.get("pdf_abs_path") or "")
+        pdf_path_text = str(resolve_pdf_path(row, peti_root="/root/peti"))
         sample_id = str(row.get("sample_id") or row.get("id") or "unknown")
         sidecar_path = items_dir / f"{sample_id}.json"
         if sidecar_path.exists() and not force:
             summary["skipped_existing"] += 1
             continue
-        work_items.append({
-            "row": row,
-            "sample_id": sample_id,
-            "pdf_path": pdf_path_text,
-            "sidecar_path": str(sidecar_path),
-            "image_dir": str(images_dir / sample_id),
-            "vlm_runner": vlm_runner,
-            "run_paddle": run_paddle,
-            "run_markitdown": run_markitdown,
-            "run_pdfplumber": run_pdfplumber,
-            "run_native_text": run_native_text,
-            "max_pages": max_pages,
-            "dpi": dpi,
-            "timeout_seconds": timeout_seconds,
-        })
+        work_items.append(
+            {
+                "row": row,
+                "sample_id": sample_id,
+                "pdf_path": pdf_path_text,
+                "sidecar_path": str(sidecar_path),
+                "image_dir": str(images_dir / sample_id),
+                "vlm_runner": vlm_runner,
+                "run_paddle": run_paddle,
+                "run_markitdown": run_markitdown,
+                "run_pdfplumber": run_pdfplumber,
+                "run_native_text": run_native_text,
+                "max_pages": max_pages,
+                "dpi": dpi,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
 
     index: dict[str, Any] = {}
     for result in _bounded_process(work_items, workers):
@@ -556,7 +572,9 @@ def run_peer_review_manifest(
             summary["errors"] += 1
         best = (report.get("review") or {}).get("best_text_method") or "none"
         summary["by_best_method"][best] = summary["by_best_method"].get(best, 0) + 1
-        decision_key = "needs_ocr" if (report.get("decision") or {}).get("needs_ocr") else "text_layer"
+        decision_key = (
+            "needs_ocr" if (report.get("decision") or {}).get("needs_ocr") else "text_layer"
+        )
         summary["by_decision"][decision_key] = summary["by_decision"].get(decision_key, 0) + 1
         index[sample_id] = _compact_index(report, sidecar_path)
         if progress_every and summary["processed"] % progress_every == 0:
@@ -586,11 +604,13 @@ def _process_work_item(work_item: dict[str, Any]) -> dict[str, Any]:
         run_native_text=bool(work_item.get("run_native_text", True)),
         metadata=metadata or None,
     )
-    report.update({
-        "sample_id": work_item["sample_id"],
-        "source": row.get("source") or row.get("theme"),
-        "pdf_key": row.get("pdf_key") or row.get("id"),
-    })
+    report.update(
+        {
+            "sample_id": work_item["sample_id"],
+            "source": row.get("source") or row.get("theme"),
+            "pdf_key": row.get("pdf_key") or row.get("id"),
+        }
+    )
     return {
         "sample_id": work_item["sample_id"],
         "sidecar_path": work_item["sidecar_path"],
@@ -612,18 +632,23 @@ def _bounded_process(
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
         pending: set[concurrent.futures.Future[dict[str, Any]]] = set()
         for _ in range(min(max_pending, len(work_items))):
-            item = next(iterator, None)
-            if item is None:
+            try:
+                item = next(iterator)
+            except StopIteration:
                 break
             pending.add(executor.submit(_process_work_item, item))
 
         while pending:
-            done, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+            done, pending = concurrent.futures.wait(
+                pending, return_when=concurrent.futures.FIRST_COMPLETED
+            )
             for future in done:
                 yield future.result()
-                item = next(iterator, None)
-                if item is not None:
-                    pending.add(executor.submit(_process_work_item, item))
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    continue
+                pending.add(executor.submit(_process_work_item, item))
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +711,7 @@ def _pairwise_similarities(peers: dict[str, dict[str, Any]]) -> dict[str, float]
     result: dict[str, float] = {}
     names = sorted(samples)
     for i, left in enumerate(names):
-        for right in names[i + 1:]:
+        for right in names[i + 1 :]:
             ratio = difflib.SequenceMatcher(None, samples[left], samples[right]).ratio()
             result[f"{left}:{right}"] = round(ratio, 4)
     return result
@@ -717,7 +742,12 @@ def _with_timeout(fn: Any, timeout_seconds: int, *, method: str) -> dict[str, An
         previous = signal.signal(signal.SIGALRM, _alarm_handler)
         signal.alarm(timeout_seconds)
     try:
-        return fn()
+        result = fn()
+        return (
+            result
+            if isinstance(result, dict)
+            else _error("method returned non-dict", method=method)
+        )
     except Exception as exc:  # noqa: BLE001
         return _error(str(exc), method=method)
     finally:

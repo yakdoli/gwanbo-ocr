@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,12 +39,19 @@ class RunRecord:
 
 def summarize_throughput(records: Iterable[RunRecord | Mapping[str, Any]]) -> dict[str, Any]:
     rows = [_as_mapping(record) for record in records]
-    durations = [_duration(row) for row in rows]
-    durations = [value for value in durations if value is not None]
-    starts = [_parse_time(row.get("started_at")) for row in rows]
-    ends = [_parse_time(row.get("ended_at")) for row in rows]
-    starts = [value for value in starts if value is not None]
-    ends = [value for value in ends if value is not None]
+    durations: list[float] = []
+    starts: list[datetime] = []
+    ends: list[datetime] = []
+    for row in rows:
+        duration = _duration(row)
+        if duration is not None:
+            durations.append(duration)
+        start = _parse_time(row.get("started_at"))
+        if start is not None:
+            starts.append(start)
+        end = _parse_time(row.get("ended_at"))
+        if end is not None:
+            ends.append(end)
 
     elapsed_s = 0.0
     if starts and ends:
@@ -56,8 +64,7 @@ def summarize_throughput(records: Iterable[RunRecord | Mapping[str, Any]]) -> di
     failed = total - succeeded
     pages = sum(int(row.get("pages") or row.get("page_count") or 0) for row in rows)
     bytes_processed = sum(
-        int(row.get("bytes_processed") or row.get("size_bytes") or 0)
-        for row in rows
+        int(row.get("bytes_processed") or row.get("size_bytes") or 0) for row in rows
     )
     worker_time_s = sum(durations)
 
@@ -85,7 +92,8 @@ def summarize_throughput(records: Iterable[RunRecord | Mapping[str, Any]]) -> di
 
 
 def format_throughput_report(summary: Mapping[str, Any], *, title: str = "OCR Throughput") -> str:
-    latency = summary.get("latency_s") if isinstance(summary.get("latency_s"), Mapping) else {}
+    latency_payload = summary.get("latency_s")
+    latency: Mapping[str, Any] = latency_payload if isinstance(latency_payload, Mapping) else {}
     lines = [
         f"# {title}",
         "",
@@ -139,7 +147,6 @@ def run_benchmark(
     JSON/JSONL with `image_path` fields. Suite names such as `smoke` are
     recorded but not auto-expanded until a sample builder has produced files.
     """
-    del concurrency
     output = Path(run_dir)
     output.mkdir(parents=True, exist_ok=True)
     tasks = _load_suite_tasks(suite)
@@ -147,51 +154,32 @@ def run_benchmark(
         tasks = tasks[:limit]
 
     model_id = resolve_runner_model(runner_name)
-    records: list[dict[str, Any]] = []
-    runner = None
-    if tasks:
-        from gwanbo_ocr.runners.vllm_chat import VllmChatRunner
-
-        runner = VllmChatRunner(
-            model=model_id,
-            base_url=base_url,
-            api_key=api_key,
-            strict_json=False,
-        )
-
-    for task in tasks:
-        image_path = task.get("image_path")
-        started_at = now_iso()
-        record: dict[str, Any] = {
-            "item_id": str(task.get("sample_id") or task.get("id") or task.get("pdf_key") or ""),
-            "runner": runner_name,
-            "model_id": model_id,
-            "engine": "vllm-chat",
-            "image_path": image_path,
-            "started_at": started_at,
-            "pages": 1,
-            "bytes_processed": _file_size(image_path),
-        }
-        try:
-            if not image_path:
-                raise ValueError("task is missing image_path")
-            result = runner.transcribe(  # type: ignore[union-attr]
-                image_path,
-                page_number=int(task.get("page_number") or 1),
-                language_hint="ko,en",
+    worker_count = max(1, concurrency)
+    if worker_count == 1:
+        records = [
+            _run_benchmark_task(
+                task,
+                runner_name=runner_name,
+                model_id=model_id,
+                base_url=base_url,
+                api_key=api_key,
             )
-            record.update(
-                {
-                    "status": "ok",
-                    "ended_at": now_iso(),
-                    "text": result.text,
-                    "result": result.to_dict(),
-                }
+            for task in tasks
+        ]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            records = list(
+                executor.map(
+                    lambda task: _run_benchmark_task(
+                        task,
+                        runner_name=runner_name,
+                        model_id=model_id,
+                        base_url=base_url,
+                        api_key=api_key,
+                    ),
+                    tasks,
+                )
             )
-        except Exception as exc:  # noqa: BLE001
-            record.update({"status": "error", "ended_at": now_iso(), "error": str(exc)})
-        record["duration_s"] = _duration(record)
-        records.append(record)
 
     results_path = write_records_jsonl(records, output / "results.jsonl")
     summary = {
@@ -200,6 +188,7 @@ def run_benchmark(
         "runner": runner_name,
         "model_id": model_id,
         "base_url": base_url,
+        "concurrency": worker_count,
         "tasks": len(tasks),
         "results": str(results_path),
         "throughput": summarize_throughput(records),
@@ -209,6 +198,56 @@ def run_benchmark(
         encoding="utf-8",
     )
     return summary
+
+
+def _run_benchmark_task(
+    task: Mapping[str, Any],
+    *,
+    runner_name: str,
+    model_id: str,
+    base_url: str,
+    api_key: str,
+) -> dict[str, Any]:
+    from gwanbo_ocr.runners.vllm_chat import VllmChatRunner
+
+    image_path = task.get("image_path")
+    started_at = now_iso()
+    record: dict[str, Any] = {
+        "item_id": str(task.get("sample_id") or task.get("id") or task.get("pdf_key") or ""),
+        "runner": runner_name,
+        "model_id": model_id,
+        "engine": "vllm-chat",
+        "image_path": image_path,
+        "started_at": started_at,
+        "pages": 1,
+        "bytes_processed": _file_size(image_path),
+    }
+    try:
+        if not image_path:
+            raise ValueError("task is missing image_path")
+        runner = VllmChatRunner(
+            model=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            strict_json=False,
+        )
+        result = runner.transcribe(
+            image_path,
+            page_number=int(task.get("page_number") or 1),
+            language_hint="ko,en",
+        )
+        record.update(
+            {
+                "status": "ok",
+                "ended_at": now_iso(),
+                "text": result.text,
+                "result": result.to_dict(),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        record.update({"status": "error", "ended_at": now_iso(), "error": str(exc)})
+    record["duration_s"] = _duration(record)
+    return record
 
 
 def score_benchmark(*, run_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:

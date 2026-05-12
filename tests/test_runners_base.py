@@ -30,9 +30,7 @@ class TestTranscriptionResult:
         assert result.text == ""
 
     def test_from_payload_preserves_page_number_and_backend(self) -> None:
-        result = TranscriptionResult.from_payload(
-            {"text": "ok"}, page_number=3, backend="vllm"
-        )
+        result = TranscriptionResult.from_payload({"text": "ok"}, page_number=3, backend="vllm")
         assert result.page_number == 3
         assert result.backend == "vllm"
 
@@ -68,7 +66,7 @@ class TestParseJsonResponse:
         assert result["text"] == "hello"
 
     def test_strips_code_fences(self) -> None:
-        fenced = "```json\n{\"text\": \"fenced\"}\n```"
+        fenced = '```json\n{"text": "fenced"}\n```'
         result = parse_json_response(fenced)
         assert result["text"] == "fenced"
 

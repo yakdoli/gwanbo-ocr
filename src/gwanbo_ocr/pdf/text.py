@@ -21,13 +21,18 @@ from .io import (
     write_json_atomic,
 )
 
+PdfReader: Any
 try:  # Prefer pypdf, then the older PyPDF2 package.
-    from pypdf import PdfReader as PdfReader  # type: ignore[import-not-found]
+    from pypdf import PdfReader as _PypdfReader  # type: ignore[import-not-found]
+
+    PdfReader = _PypdfReader
 except ImportError:  # pragma: no cover - depends on optional environment.
     try:
-        from PyPDF2 import PdfReader as PdfReader  # type: ignore[import-not-found,no-redef]
+        from PyPDF2 import PdfReader as _PyPdf2Reader  # type: ignore[import-not-found]
+
+        PdfReader = _PyPdf2Reader
     except ImportError:  # pragma: no cover - default in the kata environment.
-        PdfReader = None  # type: ignore[assignment]
+        PdfReader = None
 
 
 def analyze_pdf_text(
@@ -53,7 +58,9 @@ def analyze_pdf_text(
         "text_extractable": False,
         "text_pages": 0,
         "total_chars": 0,
-        "extraction_method": "pypdf/PyPDF2.extract_text" if PdfReader is not None else "builtin.pdf_text_stream_parser",
+        "extraction_method": "pypdf/PyPDF2.extract_text"
+        if PdfReader is not None
+        else "builtin.pdf_text_stream_parser",
         "generated_at": datetime.now().isoformat(),
     }
 
@@ -78,7 +85,9 @@ def analyze_pdf_text(
     return result
 
 
-def extract_pdf_text(pdf_path: Path | str, *, max_pages: int | None = None, timeout_seconds: int = 30) -> str:
+def extract_pdf_text(
+    pdf_path: Path | str, *, max_pages: int | None = None, timeout_seconds: int = 30
+) -> str:
     """Return normalized text extracted from a PDF, or an empty string."""
     metadata = analyze_pdf_text(
         pdf_path,
@@ -165,7 +174,9 @@ def _analyze_with_reader(
     reader = PdfReader(str(path))  # type: ignore[misc,operator]
     page_count = len(reader.pages)
     result["pages"] = page_count
-    result["pdf_metadata"] = {str(key): str(value) for key, value in (reader.metadata or {}).items()}
+    result["pdf_metadata"] = {
+        str(key): str(value) for key, value in (reader.metadata or {}).items()
+    }
     pages_to_scan = page_count if max_pages is None else min(page_count, max_pages)
     page_errors: list[dict[str, Any]] = []
     sample_parts: list[str] = []
@@ -182,7 +193,9 @@ def _analyze_with_reader(
             if include_sample and len(" ".join(sample_parts)) < sample_chars:
                 sample_parts.append(text)
 
-    _finish_text_result(result, pages_to_scan, page_errors, sample_parts, include_sample, sample_chars)
+    _finish_text_result(
+        result, pages_to_scan, page_errors, sample_parts, include_sample, sample_chars
+    )
 
 
 def _analyze_with_builtin_parser(
@@ -204,7 +217,9 @@ def _analyze_with_builtin_parser(
         result["text_pages"] = 1
         result["total_chars"] = len(text)
 
-    _finish_text_result(result, pages_to_scan, [], [text] if text else [], include_sample, sample_chars)
+    _finish_text_result(
+        result, pages_to_scan, [], [text] if text else [], include_sample, sample_chars
+    )
 
 
 def _finish_text_result(
@@ -340,7 +355,11 @@ def _decode_pdf_literal(value: str) -> str:
 
 @contextlib.contextmanager
 def _alarm_timeout(seconds: int, message: str) -> Iterator[None]:
-    if seconds <= 0 or not hasattr(signal, "SIGALRM") or threading.current_thread() is not threading.main_thread():
+    if (
+        seconds <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
         yield
         return
 

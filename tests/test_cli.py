@@ -21,6 +21,7 @@ def test_help_exits_cleanly() -> None:
     assert "manifest" in result.output
     assert "pdf" in result.output
     assert "bench" in result.output
+    assert "strategy" in result.output
 
 
 def test_manifest_build_help() -> None:
@@ -54,6 +55,12 @@ def test_pdf_validate_help() -> None:
     assert result.exit_code == 0
 
 
+def test_pdf_profile_help() -> None:
+    result = runner.invoke(app, ["pdf", "profile", "--help"])
+    assert result.exit_code == 0
+    assert "--sample-per-bucket" in result.output
+
+
 def test_bench_run_help() -> None:
     result = runner.invoke(app, ["bench", "run", "--help"])
     assert result.exit_code == 0
@@ -66,6 +73,18 @@ def test_bench_score_help() -> None:
     assert result.exit_code == 0
     assert "--run" in result.output
     assert "--output" in result.output
+
+
+def test_strategy_cluster_help() -> None:
+    result = runner.invoke(app, ["strategy", "cluster", "--help"])
+    assert result.exit_code == 0
+    assert "--profiles" in result.output
+
+
+def test_strategy_evaluate_help() -> None:
+    result = runner.invoke(app, ["strategy", "evaluate", "--help"])
+    assert result.exit_code == 0
+    assert "--clusters" in result.output
 
 
 def test_manifest_build_with_stub_peti_root(tmp_path: Path) -> None:
@@ -138,7 +157,9 @@ def test_manifest_build_with_real_peti_produces_jsonl(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert output.exists()
-    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [
+        json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     assert len(rows) <= 5
     for row in rows:
         assert "id" in row

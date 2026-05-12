@@ -6,6 +6,7 @@ import shlex
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 ROCM_VLLM_IMAGE = "vllm/vllm-openai-rocm:latest"
 DEFAULT_VLLM_PORT = 8000
@@ -54,7 +55,7 @@ class VllmDockerConfig:
         return f"http://localhost:{self.port}/v1"
 
 
-def mi300x_vllm_config(model: str, **overrides: object) -> VllmDockerConfig:
+def mi300x_vllm_config(model: str, **overrides: Any) -> VllmDockerConfig:
     """Return a vLLM Docker config with MI300X/ROCm defaults."""
 
     return VllmDockerConfig(model=model, **overrides)
@@ -62,7 +63,7 @@ def mi300x_vllm_config(model: str, **overrides: object) -> VllmDockerConfig:
 
 def build_vllm_docker_command(
     config: VllmDockerConfig | None = None,
-    **overrides: object,
+    **overrides: Any,
 ) -> list[str]:
     """Build a ``docker run`` command for the configured vLLM server."""
 

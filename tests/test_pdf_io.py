@@ -13,10 +13,12 @@ from gwanbo_ocr.pdf.io import (
     limited,
     normalize_text,
     pdf_key_from_path,
+    pdf_key_from_row,
     read_json,
     read_jsonl,
     relative_to_or_str,
     resolve_path,
+    resolve_pdf_path,
     write_json_atomic,
     write_jsonl_atomic,
 )
@@ -82,6 +84,28 @@ def test_resolve_path_relative_resolved_against_base(tmp_path: Path) -> None:
     (tmp_path / "child.txt").write_text("x", encoding="utf-8")
     resolved = resolve_path("child.txt", base_dir=tmp_path)
     assert resolved == (tmp_path / "child.txt").resolve()
+
+
+def test_resolve_pdf_path_prefers_absolute_manifest_path(tmp_path: Path) -> None:
+    absolute = tmp_path / "absolute.pdf"
+    relative = tmp_path / "relative.pdf"
+    row = {"pdf_abs_path": str(absolute), "pdf_path": str(relative)}
+
+    assert resolve_pdf_path(row) == absolute
+
+
+def test_resolve_pdf_path_uses_peti_root_for_artifact_relative_path(tmp_path: Path) -> None:
+    row = {"pdf_path": "artifacts/searchThema/pdfs/2024/doc.pdf"}
+
+    assert resolve_pdf_path(row, peti_root=tmp_path) == (
+        tmp_path / "artifacts/searchThema/pdfs/2024/doc.pdf"
+    ).resolve(strict=False)
+
+
+def test_pdf_key_from_row_uses_metadata_before_path() -> None:
+    row = {"metadata_key": "a\\b/c", "pdf_path": "artifacts/x.pdf"}
+
+    assert pdf_key_from_row(row) == "a/b/c"
 
 
 def test_relative_to_or_str_returns_posix_string(tmp_path: Path) -> None:

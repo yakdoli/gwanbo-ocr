@@ -35,7 +35,7 @@ class PaddleOcrRunner:
     def ocr(self) -> Any:
         if self._ocr is None:
             try:
-                from paddleocr import PaddleOCR
+                from paddleocr import PaddleOCR  # type: ignore[import-not-found]
             except ImportError as exc:  # pragma: no cover - optional dependency
                 raise RuntimeError(
                     "PaddleOCR is not installed. Install it to use PaddleOcrRunner."

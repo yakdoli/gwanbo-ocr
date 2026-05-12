@@ -66,6 +66,21 @@ gwanbo-ocr pdf render \
   --dpi 200 \
   --max-long-edge 2400
 
+gwanbo-ocr pdf profile \
+  --input runs/<run_id>/pdf_manifest.jsonl \
+  --output runs/<run_id>/profiles \
+  --max-pages 3 \
+  --workers 8 \
+  --sample-per-bucket 20
+
+gwanbo-ocr strategy cluster \
+  --profiles runs/<run_id>/profiles/manifest.jsonl \
+  --output runs/<run_id>/clusters
+
+gwanbo-ocr strategy evaluate \
+  --clusters runs/<run_id>/clusters/cluster_manifest.jsonl \
+  --output runs/<run_id>/strategy_eval
+
 gwanbo-ocr bench run \
   --suite runs/<run_id>/images/manifest.jsonl \
   --runner qwen36_baseline \
@@ -84,6 +99,24 @@ PDF rendering defaults, PaddleOCR settings, OpenAI-compatible model aliases,
 and Docker launch settings for the MI300X/ROCm vLLM runtime. The default
 baseline alias is `qwen36_baseline`, which resolves to
 `Qwen/Qwen3.6-35B-A3B-FP8`.
+
+## Layout Strategy Clustering
+
+Use `pdf profile` before large OCR runs to build a lightweight feature manifest
+from `/root/peti` metadata and a bounded PDF inspection pass. The profiler
+samples by `theme/year/category`, writes `pdf-profile/v1` rows, and preserves
+row-level errors so one malformed PDF does not stop the batch.
+
+`strategy cluster` groups profiles with deterministic buckets for text mode,
+layout class, page count, table density, and form score. Each
+`layout-cluster/v1` row receives one of the v1 strategies:
+`native_text_body`, `native_pdfplumber_table`, `ocr_paddle_simple`,
+`ocr_vlm_structured`, `peer_review_escalation`, or `skip_invalid`.
+
+`strategy evaluate` writes `strategy-eval/v1` proxy evaluations from cluster
+metrics. Gold labels can be layered on later; v1 is intended to choose
+representative samples and avoid sending the full 154 GB artifact set through
+OCR before the parsing plan is clear.
 
 ## Cleaning vLLM Residue
 

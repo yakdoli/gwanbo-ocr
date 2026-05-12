@@ -86,11 +86,7 @@ def wer(reference: Any, hypothesis: Any, *, normalize: bool = True) -> float:
 def precision_recall_f1(tp: int, fp: int, fn: int) -> F1Result:
     precision = tp / (tp + fp) if tp + fp else (1.0 if fn == 0 else 0.0)
     recall = tp / (tp + fn) if tp + fn else (1.0 if fp == 0 else 0.0)
-    f1 = (
-        2 * precision * recall / (precision + recall)
-        if precision + recall
-        else 0.0
-    )
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     return F1Result(precision=precision, recall=recall, f1=f1, tp=tp, fp=fp, fn=fn)
 
 
@@ -198,10 +194,7 @@ def _coerce_tokens(value: Any, *, casefold: bool) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        return [
-            normalize_text(token, casefold=casefold)
-            for token in TOKEN_PATTERN.findall(value)
-        ]
+        return [normalize_text(token, casefold=casefold) for token in TOKEN_PATTERN.findall(value)]
     if isinstance(value, Mapping):
         tokens: list[str] = []
         for item in value.values():

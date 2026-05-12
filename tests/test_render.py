@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -170,3 +171,36 @@ def test_page_count_returns_correct_value() -> None:
     from gwanbo_ocr.render import page_count
 
     assert page_count(TEXT_PDF_BYTES) == 1
+
+
+def test_render_manifest_records_bad_selected_pages_without_aborting(tmp_path: Path) -> None:
+    from gwanbo_ocr.render import render_manifest
+
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps(
+            {
+                "id": "bad-pages",
+                "pdf_path": str(tmp_path / "missing.pdf"),
+                "selected_pages": ["not-an-int"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = render_manifest(
+        manifest_path=manifest,
+        output_dir=tmp_path / "images",
+        workers=1,
+    )
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "images" / "manifest.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+
+    assert summary["counts"]["errors"] == 1
+    assert rows[0]["status"] == "error"
+    assert rows[0]["error"].startswith("invalid_page_selection")
