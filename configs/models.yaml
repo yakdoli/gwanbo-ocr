@@ -1,0 +1,61 @@
+# Default model and runtime knobs for the OCR pipeline.
+#
+# This file intentionally records integration settings only. Local inference
+# servers and heavyweight runtimes such as vLLM, torch, and transformers are
+# managed outside this project's install dependencies.
+
+defaults:
+  pdf_renderer: pymupdf
+  ocr_engine: paddleocr
+  vision_language_model: qwen36_baseline
+
+pdf:
+  dpi: 200
+  image_format: png
+  max_pages:
+
+ocr:
+  paddleocr:
+    language: korean
+    use_angle_cls: true
+    use_gpu: false
+    det_model_dir:
+    rec_model_dir:
+    cls_model_dir:
+
+vision_language_models:
+  qwen36_baseline:
+    provider: openai_compatible
+    model: Qwen/Qwen3.6-35B-A3B-FP8
+    base_url: http://127.0.0.1:8000/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_seconds: 120
+    max_retries: 2
+    docker:
+      image: vllm/vllm-openai-rocm:latest
+      container_name: vllm-ocr-batch
+      max_model_len: 131072
+      max_num_batched_tokens: 131072
+      max_num_seqs: 1024
+      gpu_memory_utilization: 0.95
+      enforce_eager: true
+      trust_remote_code: true
+      disable_custom_all_reduce: true
+  qwen3_vl:
+    provider: openai_compatible
+    model: Qwen/Qwen3-VL-8B-Instruct
+    base_url: http://127.0.0.1:8000/v1
+    max_model_len: 32768
+    max_num_seqs: 16
+  bizonai_ocr:
+    provider: openai_compatible
+    model: ONTHEIT/BizOnAI-OCR
+    base_url: http://127.0.0.1:8000/v1
+    max_model_len: 16384
+    max_num_seqs: 32
+  exaone45_33b:
+    provider: openai_compatible
+    model: LGAI-EXAONE/EXAONE-4.5-33B
+    base_url: http://127.0.0.1:8000/v1
+    max_model_len: 32768
+    max_num_seqs: 8
