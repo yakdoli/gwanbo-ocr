@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib import error, request
-
 SUCCESS_STATUSES = {"ok", "success", "completed"}
 
 
@@ -168,9 +166,11 @@ def run_benchmark(
     elif not _tasks_require_vllm(tasks, enforce_strategy_routing=enforce_strategy_routing):
         preflight = {"status": "skipped_no_vllm_route"}
     else:
-        preflight = _preflight_openai_endpoint(
+        from gwanbo_ocr.runners.preflight import preflight_openai_endpoint
+        preflight = preflight_openai_endpoint(
             base_url=base_url,
             api_key=api_key,
+            model_id=model_id,
             timeout_s=preflight_timeout_s,
         )
 
@@ -431,43 +431,6 @@ def _tasks_require_vllm(
             continue
         return True
     return False
-
-
-def _preflight_openai_endpoint(
-    *,
-    base_url: str,
-    api_key: str,
-    timeout_s: float,
-) -> dict[str, Any]:
-    models_url = _models_endpoint(base_url)
-    headers = {"Accept": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    req = request.Request(models_url, headers=headers)
-    try:
-        with request.urlopen(req, timeout=timeout_s) as response:
-            status = int(getattr(response, "status", response.getcode()))
-            return {"status": "ok", "url": models_url, "http_status": status}
-    except error.HTTPError as exc:
-        status = int(exc.code)
-        if status in {401, 403, 404}:
-            return {
-                "status": "reachable_http_error",
-                "url": models_url,
-                "http_status": status,
-            }
-        raise RuntimeError(
-            f"vLLM preflight failed ({status}) at {models_url}: {exc.reason}"
-        ) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"vLLM preflight failed at {models_url}: {exc}") from exc
-
-
-def _models_endpoint(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/v1"):
-        return f"{normalized}/models"
-    return f"{normalized}/v1/models"
 
 
 def _transcribe_with_vllm(
