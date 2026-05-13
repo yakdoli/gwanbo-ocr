@@ -73,17 +73,26 @@ vision_language_models:
     provider: openai_compatible
     model: Qwen/Qwen3-VL-8B-Instruct
     base_url: http://127.0.0.1:8000/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_seconds: 120
+    max_retries: 2
     max_model_len: 32768
     max_num_seqs: 16
   bizonai_ocr:
     provider: openai_compatible
     model: ONTHEIT/BizOnAI-OCR
     base_url: http://127.0.0.1:8000/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_seconds: 180
+    max_retries: 2
     max_model_len: 16384
     max_num_seqs: 32
   exaone45_33b:
     provider: openai_compatible
     model: LGAI-EXAONE/EXAONE-4.5-33B
     base_url: http://127.0.0.1:8000/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_seconds: 300
+    max_retries: 2
     max_model_len: 32768
     max_num_seqs: 8

@@ -63,6 +63,7 @@ def run_benchmark(
         tasks = tasks[:limit]
 
     model_id = resolve_runner_model(runner_name)
+    runner_config = resolve_runner_config(runner_name)
     effective_paddle_service_url = paddle_service_url or resolve_paddle_service_url()
     worker_count = max(1, concurrency)
 
@@ -91,6 +92,7 @@ def run_benchmark(
                 api_key=api_key,
                 enforce_strategy_routing=enforce_strategy_routing,
                 paddle_service_url=effective_paddle_service_url,
+                runner_config=runner_config,
             )
             for task in tasks
         ]
@@ -106,6 +108,7 @@ def run_benchmark(
                         api_key=api_key,
                         enforce_strategy_routing=enforce_strategy_routing,
                         paddle_service_url=effective_paddle_service_url,
+                        runner_config=runner_config,
                     ),
                     tasks,
                 )
@@ -144,6 +147,7 @@ def _run_benchmark_task(
     api_key: str,
     enforce_strategy_routing: bool,
     paddle_service_url: str | None,
+    runner_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     image_path = task.get("image_path")
     strategy = str(task.get("strategy") or "")
@@ -199,6 +203,7 @@ def _run_benchmark_task(
                     model_id=model_id,
                     base_url=base_url,
                     api_key=api_key,
+                    runner_config=runner_config,
                 )
         else:
             route = "vlm_primary"
@@ -208,6 +213,7 @@ def _run_benchmark_task(
                 model_id=model_id,
                 base_url=base_url,
                 api_key=api_key,
+                runner_config=runner_config,
             )
 
         if enforce_strategy_routing and strategy == "peer_review_escalation":
@@ -253,6 +259,36 @@ def resolve_runner_model(
         return runner_name
     model = entry.get("model_id") or entry.get("model")
     return str(model) if model else runner_name
+
+
+def resolve_runner_config(
+    runner_name: str,
+    *,
+    config_path: str | Path = "configs/models.yaml",
+) -> dict[str, Any]:
+    """Read timeout_seconds, max_retries from models.yaml for a runner alias."""
+    _DEFAULT_TIMEOUT = 120
+    _DEFAULT_RETRIES = 2
+    defaults: dict[str, Any] = {"timeout_seconds": _DEFAULT_TIMEOUT, "max_retries": _DEFAULT_RETRIES}
+    config = Path(config_path)
+    if not config.exists():
+        return defaults
+    try:
+        import yaml
+
+        data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001
+        return defaults
+    models = data.get("vision_language_models")
+    if not isinstance(models, Mapping):
+        return defaults
+    entry = models.get(runner_name)
+    if not isinstance(entry, Mapping):
+        return defaults
+    return {
+        "timeout_seconds": int(entry.get("timeout_seconds") or _DEFAULT_TIMEOUT),
+        "max_retries": int(entry.get("max_retries") or _DEFAULT_RETRIES),
+    }
 
 
 def resolve_paddle_service_url(
@@ -342,15 +378,20 @@ def _transcribe_with_vllm(
     model_id: str,
     base_url: str,
     api_key: str,
+    runner_config: dict[str, Any] | None = None,
 ) -> Any:
     from gwanbo_ocr.runners.vllm_chat import VllmChatRunner
 
+    timeout = int((runner_config or {}).get("timeout_seconds") or 120)
+    max_retries = int((runner_config or {}).get("max_retries") or 2)
     runner = VllmChatRunner(
         model=model_id,
         base_url=base_url,
         api_key=api_key,
+        timeout=timeout,
         strict_json=False,
     )
+    del max_retries  # stored for future use when retry logic is added
     return runner.transcribe(
         image_path,
         page_number=page_number,

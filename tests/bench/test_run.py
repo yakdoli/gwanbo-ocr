@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from gwanbo_ocr.bench import resolve_runner_model, run_benchmark
-from gwanbo_ocr.bench.run import _merge_gold_references, _run_benchmark_task
+from gwanbo_ocr.bench.run import _merge_gold_references, _run_benchmark_task, resolve_runner_config
 
 
 def test_resolve_runner_model_uses_model_config_alias(tmp_path: Path) -> None:
@@ -550,3 +550,43 @@ def test_merge_gold_references_fills_missing(tmp_path: Path) -> None:
     assert result[1]["reference_text"] == "ref two"
     assert result[2].get("reference_text") is None
     assert result[3]["reference_text"] == "already set"  # pre-set value wins over gold
+
+
+def test_resolve_runner_config_returns_baseline_values(tmp_path: Path) -> None:
+    config = tmp_path / "models.yaml"
+    config.write_text(
+        """
+vision_language_models:
+  qwen36_baseline:
+    model: Qwen/Qwen3.6-35B-A3B-FP8
+    timeout_seconds: 120
+    max_retries: 2
+""",
+        encoding="utf-8",
+    )
+    result = resolve_runner_config("qwen36_baseline", config_path=config)
+    assert result["timeout_seconds"] == 120
+    assert result["max_retries"] == 2
+
+
+def test_resolve_runner_config_returns_defaults_for_unknown(tmp_path: Path) -> None:
+    config = tmp_path / "models.yaml"
+    config.write_text(
+        """
+vision_language_models:
+  qwen36_baseline:
+    model: Qwen/Qwen3.6-35B-A3B-FP8
+    timeout_seconds: 120
+    max_retries: 2
+""",
+        encoding="utf-8",
+    )
+    result = resolve_runner_config("nonexistent_runner", config_path=config)
+    assert result["timeout_seconds"] == 120
+    assert result["max_retries"] == 2
+
+
+def test_resolve_runner_config_returns_defaults_when_no_file(tmp_path: Path) -> None:
+    result = resolve_runner_config("any_runner", config_path=tmp_path / "missing.yaml")
+    assert result["timeout_seconds"] == 120
+    assert result["max_retries"] == 2
