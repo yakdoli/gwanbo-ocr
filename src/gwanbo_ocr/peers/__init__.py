@@ -405,13 +405,16 @@ def run_peer_review_manifest(
         sample_id = result["sample_id"]
         report = result["report"]
         sidecar_path = Path(result["sidecar_path"])
-        artifact_dir = _write_sample_artifact(
+        artifact_paths = _write_sample_artifact(
             samples_dir / _safe_artifact_name(sample_id),
             row=result["row"],
             report=report,
             image_dir=Path(result["image_dir"]),
+            manifest_path=manifest_path,
+            sidecar_path=sidecar_path,
         )
-        report["sample_artifact_dir"] = str(artifact_dir)
+        report["sample_artifact_dir"] = artifact_paths["artifact_dir"]
+        report["sample_artifact_paths"] = artifact_paths
         write_json_atomic(sidecar_path, report)
         summary["processed"] += 1
         if report.get("status") == "error":
@@ -610,6 +613,7 @@ def _compact_index(report: dict[str, Any], sidecar_path: Path) -> dict[str, Any]
         "ranked_by_f1": score.get("ranked_by_f1"),
         "sidecar_path": str(sidecar_path),
         "sample_artifact_dir": report.get("sample_artifact_dir"),
+        "sample_artifact_paths": report.get("sample_artifact_paths"),
         "generated_at": report.get("generated_at"),
         "error": report.get("error"),
     }
@@ -621,15 +625,33 @@ def _write_sample_artifact(
     row: dict[str, Any],
     report: dict[str, Any],
     image_dir: Path,
-) -> Path:
+    manifest_path: Path,
+    sidecar_path: Path,
+) -> dict[str, str]:
     from gwanbo_ocr.pdf.io import write_json_atomic
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    source_path = artifact_dir / "source.json"
+    peer_samples_path = artifact_dir / "peer_samples.json"
+    diff_summary_path = artifact_dir / "diff_summary.json"
+    peer_samples_markdown_path = artifact_dir / "peer_samples.md"
+    artifact_paths = {
+        "artifact_dir": str(artifact_dir),
+        "source_json": str(source_path),
+        "peer_samples_json": str(peer_samples_path),
+        "diff_summary_json": str(diff_summary_path),
+        "peer_samples_markdown": str(peer_samples_markdown_path),
+        "sidecar_path": str(sidecar_path),
+        "manifest_path": str(manifest_path),
+    }
     source = {
         "sample_id": report.get("sample_id"),
         "pdf_key": report.get("pdf_key"),
         "source": report.get("source"),
         "path": report.get("path"),
+        "manifest_path": str(manifest_path),
+        "sidecar_path": str(sidecar_path),
+        "artifact_paths": artifact_paths,
         "title": row.get("title"),
         "category": row.get("category"),
         "agency": row.get("agency"),
@@ -657,15 +679,16 @@ def _write_sample_artifact(
         ),
         "warnings": (report.get("review") or {}).get("warnings"),
         "decision": report.get("decision"),
+        "artifact_paths": artifact_paths,
     }
-    write_json_atomic(artifact_dir / "source.json", source)
-    write_json_atomic(artifact_dir / "peer_samples.json", peer_samples)
-    write_json_atomic(artifact_dir / "diff_summary.json", diff_summary)
-    (artifact_dir / "peer_samples.md").write_text(
+    write_json_atomic(source_path, source)
+    write_json_atomic(peer_samples_path, peer_samples)
+    write_json_atomic(diff_summary_path, diff_summary)
+    peer_samples_markdown_path.write_text(
         _peer_samples_markdown(peer_samples),
         encoding="utf-8",
     )
-    return artifact_dir
+    return artifact_paths
 
 
 def _peer_samples_markdown(peer_samples: dict[str, dict[str, Any]]) -> str:

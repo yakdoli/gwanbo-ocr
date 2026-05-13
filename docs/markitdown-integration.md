@@ -125,33 +125,31 @@ done
 docker-compose -f docker-compose.markitdown.yml --profile server up -d markitdown-server
 
 # 또는 로컬에서
-python scripts/markitdown_server.py
+uvicorn scripts.markitdown_server:app --host 0.0.0.0 --port 8081
 ```
 
 #### 파일 업로드 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/file" \
-  -F "file=@document.pdf" \
-  -F "include_metadata=true"
+curl -X POST "http://localhost:8081/convert/file" \
+  -F "file=@document.pdf"
 ```
 
 #### 경로 기반 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/path" \
+curl -X POST "http://localhost:8081/convert/path" \
   -H "Content-Type: application/json" \
   -d '{
     "file_path": "/workspace/runs/my-run/sample.pdf",
-    "output_path": "/workspace/outputs/sample.md",
-    "include_metadata": true
+    "output_path": "/workspace/outputs/sample.md"
   }'
 ```
 
 #### 배치 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/batch" \
+curl -X POST "http://localhost:8081/convert/batch" \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": [
@@ -165,7 +163,7 @@ curl -X POST "http://localhost:8080/convert/batch" \
 #### 헬스 체크
 
 ```bash
-curl "http://localhost:8080/health"
+curl "http://localhost:8081/health"
 ```
 
 ## 시스템 의존성
@@ -240,7 +238,7 @@ import json
 import requests
 from pathlib import Path
 
-API_URL = "http://localhost:8080"
+API_URL = "http://localhost:8081"
 
 # 변환할 PDF 목록 수집
 pdf_files = list(Path("/root/gwanbo-ocr/runs/my-run").glob("*.pdf"))
@@ -363,7 +361,7 @@ EOF
 docker-compose -f docker-compose.markitdown.yml --profile server logs markitdown-server
 
 # 수동 테스트
-curl -v http://localhost:8080/health
+curl -v http://localhost:8081/health
 ```
 
 ## 지원 형식

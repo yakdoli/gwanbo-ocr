@@ -216,6 +216,52 @@ def test_evaluate_clusters_merges_bench_and_peer_metrics(tmp_path: Path) -> None
     assert rows[0]["table_f1"] == 0.5
 
 
+def test_evaluate_clusters_maps_new_ocr_peer_metrics(tmp_path: Path) -> None:
+    cluster_manifest = tmp_path / "cluster_manifest.jsonl"
+    cluster_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "layout-cluster/v1",
+                "cluster_id": "c1",
+                "assigned_strategy": "ocr_vlm_structured",
+                "count": 2,
+                "confidence": 0.8,
+                "profile_summary": {"error_count": 0},
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    peer_report = tmp_path / "peer_score_report.json"
+    peer_report.write_text(
+        json.dumps(
+            {
+                "avg_critical_token_f1_by_method": {
+                    "paddle_ocr_vl": 0.91,
+                    "markitdown_ocr_llm": 0.95,
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    evaluate_clusters(
+        clusters_path=cluster_manifest,
+        output_dir=tmp_path / "eval",
+        peer_score_report_path=peer_report,
+    )
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "eval" / "strategy_eval.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert rows[0]["critical_token_f1"] == 0.93
+
+
 def test_evaluate_clusters_uses_bench_error_rate_for_recommendation(tmp_path: Path) -> None:
     cluster_manifest = tmp_path / "cluster_manifest.jsonl"
     cluster_manifest.write_text(

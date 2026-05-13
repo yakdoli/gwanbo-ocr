@@ -59,7 +59,7 @@ gwanbo-ocr convert file document.pdf --output output.md
 
 ```bash
 gwanbo-ocr convert manifest \
-  --manifest pdf_manifest.jsonl \
+  --input pdf_manifest.jsonl \
   --output markdown/ \
   --workers 4
 ```
@@ -80,7 +80,7 @@ docker run --rm -i markitdown:latest < input.pdf > output.md
 docker-compose -f docker-compose.markitdown.yml --profile server up -d
 
 # API 호출
-curl -X POST http://localhost:8080/convert/file \
+curl -X POST http://localhost:8081/convert/file \
   -F "file=@document.pdf"
 ```
 
@@ -135,7 +135,7 @@ gwanbo-ocr convert file \
 ### 배치 처리
 ```bash
 gwanbo-ocr convert manifest \
-  --manifest pdf_manifest.jsonl \
+  --input pdf_manifest.jsonl \
   --output markdown_output/ \
   --key sample_id \
   --pdf-path-field pdf_path \
@@ -161,16 +161,16 @@ gwanbo-ocr convert manifest \
 
 ```bash
 # 파일 업로드
-curl -X POST http://localhost:8080/convert/file \
+curl -X POST http://localhost:8081/convert/file \
   -F "file=@document.pdf"
 
 # 경로 변환
-curl -X POST http://localhost:8080/convert/path \
+curl -X POST http://localhost:8081/convert/path \
   -H "Content-Type: application/json" \
   -d '{"file_path": "/path/to/file.pdf", "output_path": "/output/file.md"}'
 
 # 배치 변환
-curl -X POST http://localhost:8080/convert/batch \
+curl -X POST http://localhost:8081/convert/batch \
   -H "Content-Type: application/json" \
   -d '{"file_paths": [...], "output_dir": "..."}'
 ```
@@ -284,7 +284,7 @@ docker run --rm -i markitdown:latest --help
 ### 4. API 서버 테스트
 ```bash
 docker-compose -f docker-compose.markitdown.yml --profile server up -d
-curl http://localhost:8080/health
+curl http://localhost:8081/health
 docker-compose -f docker-compose.markitdown.yml --profile server down
 ```
 

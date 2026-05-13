@@ -112,10 +112,16 @@ def convert_file(
     output: Path = typer.Option(..., help="Output Markdown file or directory."),
     mode: str = typer.Option("plain", "--mode", help="Conversion mode: plain or ocr-llm."),
     service_url: str | None = typer.Option(
-        None, "--service-url", help="Optional MarkItDown HTTP service URL."
+        None,
+        "--service-url",
+        help="Optional MarkItDown HTTP service URL.",
+        envvar="GWANBO_MARKITDOWN_SERVICE_URL",
     ),
     llm_base_url: str | None = typer.Option(
-        None, "--llm-base-url", help="OpenAI-compatible base URL for OCR+LLM mode."
+        None,
+        "--llm-base-url",
+        help="OpenAI-compatible base URL for OCR+LLM mode.",
+        envvar="GWANBO_QWEN_BASE_URL",
     ),
     llm_model: str | None = typer.Option(
         None, "--llm-model", help="Vision-capable model for OCR+LLM mode."
@@ -159,10 +165,16 @@ def convert_manifest(
     skip_errors: bool = typer.Option(True, help="Skip files with conversion errors."),
     force: bool = typer.Option(False, help="Overwrite existing output files."),
     service_url: str | None = typer.Option(
-        None, "--service-url", help="Optional MarkItDown HTTP service URL."
+        None,
+        "--service-url",
+        help="Optional MarkItDown HTTP service URL.",
+        envvar="GWANBO_MARKITDOWN_SERVICE_URL",
     ),
     llm_base_url: str | None = typer.Option(
-        None, "--llm-base-url", help="OpenAI-compatible base URL for OCR+LLM mode."
+        None,
+        "--llm-base-url",
+        help="OpenAI-compatible base URL for OCR+LLM mode.",
+        envvar="GWANBO_QWEN_BASE_URL",
     ),
     llm_model: str | None = typer.Option(
         None, "--llm-model", help="Vision-capable model for OCR+LLM mode."
@@ -174,25 +186,29 @@ def convert_manifest(
     timeout: float = typer.Option(120.0, "--timeout", help="Per-file timeout in seconds."),
 ) -> None:
     """Batch convert PDFs from a manifest to Markdown files."""
-    from gwanbo_ocr.conversion import convert_manifest as convert_manifest_rows
+    import gwanbo_ocr.conversion as conversion
 
-    summary = convert_manifest_rows(
-        manifest_path=input,
-        output_dir=output,
-        mode=mode,
-        key=key,
-        pdf_path_field=pdf_path_field,
-        workers=workers,
-        limit=limit,
-        skip_errors=skip_errors,
-        force=force,
-        service_url=service_url,
-        llm_base_url=llm_base_url,
-        llm_model=llm_model,
-        llm_api_key=llm_api_key,
-        llm_prompt=llm_prompt,
-        timeout_seconds=timeout,
-    )
+    try:
+        summary = conversion.convert_manifest(
+            manifest_path=input,
+            output_dir=output,
+            mode=mode,
+            key=key,
+            pdf_path_field=pdf_path_field,
+            workers=workers,
+            limit=limit,
+            skip_errors=skip_errors,
+            force=force,
+            service_url=service_url,
+            llm_base_url=llm_base_url,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_prompt=llm_prompt,
+            timeout_seconds=timeout,
+        )
+    except conversion.ConversionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
     _echo_summary(summary)
 
 
@@ -272,8 +288,18 @@ def bench_run(
     suite: str = typer.Option("smoke", help="Suite name or sample JSONL path."),
     runner: str = typer.Option("qwen36_baseline", help="Runner/model config name."),
     run_dir: Path = typer.Option(Path("runs/current"), help="Run output directory."),
-    base_url: str = typer.Option("http://127.0.0.1:8000/v1", help="OpenAI-compatible base URL."),
+    base_url: str = typer.Option(
+        "http://127.0.0.1:8000/v1",
+        help="OpenAI-compatible base URL.",
+        envvar="GWANBO_QWEN_BASE_URL",
+    ),
     api_key: str = typer.Option("dummy", help="OpenAI-compatible API key."),
+    paddle_service_url: str | None = typer.Option(
+        None,
+        "--paddle-service-url",
+        help="Optional PaddleOCR API URL for ocr_paddle_simple routing.",
+        envvar="GWANBO_PADDLEOCR_SERVICE_URL",
+    ),
     concurrency: int = typer.Option(4, help="Concurrent inference requests."),
     enforce_strategy_routing: bool = typer.Option(
         True,
@@ -301,6 +327,7 @@ def bench_run(
         run_dir=run_dir,
         base_url=base_url,
         api_key=api_key,
+        paddle_service_url=paddle_service_url,
         concurrency=concurrency,
         enforce_strategy_routing=enforce_strategy_routing,
         preflight_vllm=preflight_vllm,
@@ -373,7 +400,11 @@ def strategy_pipeline(
     manifest: Path = typer.Option(..., "--manifest", help="Input PDF manifest JSONL."),
     output: Path = typer.Option(..., help="Pipeline output root directory."),
     runner: str = typer.Option("qwen36_baseline", help="Bench runner/model alias."),
-    base_url: str = typer.Option("http://127.0.0.1:8000/v1", help="OpenAI-compatible base URL."),
+    base_url: str = typer.Option(
+        "http://127.0.0.1:8000/v1",
+        help="OpenAI-compatible base URL.",
+        envvar="GWANBO_QWEN_BASE_URL",
+    ),
     api_key: str = typer.Option("dummy", help="OpenAI-compatible API key."),
     sample_per_bucket: int = typer.Option(
         20,
@@ -419,11 +450,13 @@ def strategy_pipeline(
         None,
         "--markitdown-service-url",
         help="Optional MarkItDown OCR API URL, e.g. http://127.0.0.1:8081.",
+        envvar="GWANBO_MARKITDOWN_SERVICE_URL",
     ),
     markitdown_llm_base_url: str | None = typer.Option(
         None,
         "--markitdown-llm-base-url",
         help="OpenAI-compatible base URL used by MarkItDown OCR+LLM.",
+        envvar="GWANBO_QWEN_BASE_URL",
     ),
     markitdown_llm_model: str | None = typer.Option(
         None,
@@ -440,11 +473,13 @@ def strategy_pipeline(
         None,
         "--paddle-service-url",
         help="Optional PaddleOCR API URL for classic OCR, e.g. http://127.0.0.1:8082.",
+        envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
     paddle_vl_service_url: str | None = typer.Option(
         None,
         "--paddle-vl-service-url",
         help="Optional PaddleOCR API URL for PaddleOCR-VL client calls.",
+        envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
     paddle_vl_backend: str | None = typer.Option(
         None,
@@ -455,6 +490,7 @@ def strategy_pipeline(
         None,
         "--paddle-vl-server-url",
         help="PaddleOCR-VL recognition server URL, e.g. http://127.0.0.1:8000/v1.",
+        envvar="GWANBO_PADDLE_VL_BASE_URL",
     ),
     paddle_vl_model: str | None = typer.Option(
         None,
@@ -541,11 +577,13 @@ def peer_run(
         None,
         "--markitdown-service-url",
         help="Optional MarkItDown OCR API URL, e.g. http://127.0.0.1:8081.",
+        envvar="GWANBO_MARKITDOWN_SERVICE_URL",
     ),
     markitdown_llm_base_url: str | None = typer.Option(
         None,
         "--markitdown-llm-base-url",
         help="OpenAI-compatible base URL used by MarkItDown OCR+LLM.",
+        envvar="GWANBO_QWEN_BASE_URL",
     ),
     markitdown_llm_model: str | None = typer.Option(
         None,
@@ -562,11 +600,13 @@ def peer_run(
         None,
         "--paddle-service-url",
         help="Optional PaddleOCR API URL for classic OCR, e.g. http://127.0.0.1:8082.",
+        envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
     paddle_vl_service_url: str | None = typer.Option(
         None,
         "--paddle-vl-service-url",
         help="Optional PaddleOCR API URL for PaddleOCR-VL client calls.",
+        envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
     paddle_vl_backend: str | None = typer.Option(
         None,
@@ -577,6 +617,7 @@ def peer_run(
         None,
         "--paddle-vl-server-url",
         help="PaddleOCR-VL recognition server URL, e.g. http://127.0.0.1:8000/v1.",
+        envvar="GWANBO_PADDLE_VL_BASE_URL",
     ),
     paddle_vl_model: str | None = typer.Option(
         None,

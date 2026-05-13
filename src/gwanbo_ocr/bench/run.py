@@ -49,6 +49,7 @@ def run_benchmark(
     enforce_strategy_routing: bool = True,
     preflight_vllm: bool = False,
     preflight_timeout_s: float = 5.0,
+    paddle_service_url: str | None = None,
 ) -> dict[str, Any]:
     from gwanbo_ocr.runners.preflight import preflight_openai_endpoint
 
@@ -59,6 +60,7 @@ def run_benchmark(
         tasks = tasks[:limit]
 
     model_id = resolve_runner_model(runner_name)
+    effective_paddle_service_url = paddle_service_url or resolve_paddle_service_url()
     worker_count = max(1, concurrency)
 
     preflight: dict[str, Any]
@@ -85,6 +87,7 @@ def run_benchmark(
                 base_url=base_url,
                 api_key=api_key,
                 enforce_strategy_routing=enforce_strategy_routing,
+                paddle_service_url=effective_paddle_service_url,
             )
             for task in tasks
         ]
@@ -99,6 +102,7 @@ def run_benchmark(
                         base_url=base_url,
                         api_key=api_key,
                         enforce_strategy_routing=enforce_strategy_routing,
+                        paddle_service_url=effective_paddle_service_url,
                     ),
                     tasks,
                 )
@@ -111,6 +115,7 @@ def run_benchmark(
         "runner": runner_name,
         "model_id": model_id,
         "base_url": base_url,
+        "paddle_service_url": effective_paddle_service_url,
         "concurrency": worker_count,
         "enforce_strategy_routing": enforce_strategy_routing,
         "preflight": preflight,
@@ -135,6 +140,7 @@ def _run_benchmark_task(
     base_url: str,
     api_key: str,
     enforce_strategy_routing: bool,
+    paddle_service_url: str | None,
 ) -> dict[str, Any]:
     image_path = task.get("image_path")
     strategy = str(task.get("strategy") or "")
@@ -176,7 +182,11 @@ def _run_benchmark_task(
         if enforce_strategy_routing and strategy == "ocr_paddle_simple":
             try:
                 route = "paddle_primary"
-                result = _transcribe_with_paddle(image_path, page_number=page_number)
+                result = _transcribe_with_paddle(
+                    image_path,
+                    page_number=page_number,
+                    service_url=paddle_service_url,
+                )
             except Exception:  # noqa: BLE001
                 route = "paddle_to_vllm_fallback"
                 result = _transcribe_with_vllm(
@@ -239,6 +249,40 @@ def resolve_runner_model(
         return runner_name
     model = entry.get("model_id") or entry.get("model")
     return str(model) if model else runner_name
+
+
+def resolve_paddle_service_url(
+    *,
+    config_path: str | Path = "configs/models.yaml",
+) -> str | None:
+    """Resolve the containerized PaddleOCR service URL from env/config defaults."""
+    import os
+
+    env_url = os.getenv("GWANBO_PADDLEOCR_SERVICE_URL")
+    if env_url:
+        return env_url
+    config = Path(config_path)
+    if not config.exists():
+        return None
+    try:
+        import yaml
+
+        data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(data, Mapping):
+        return None
+    ocr = data.get("ocr")
+    if isinstance(ocr, Mapping):
+        paddleocr = ocr.get("paddleocr")
+        if isinstance(paddleocr, Mapping) and paddleocr.get("service_url"):
+            return str(paddleocr["service_url"])
+    services = data.get("services")
+    if isinstance(services, Mapping):
+        paddle_api = services.get("paddleocr_api")
+        if isinstance(paddle_api, Mapping) and paddle_api.get("base_url"):
+            return str(paddle_api["base_url"])
+    return None
 
 
 def now_iso() -> str:
@@ -310,8 +354,19 @@ def _transcribe_with_vllm(
     )
 
 
-def _transcribe_with_paddle(image_path: Any, *, page_number: int) -> Any:
+def _transcribe_with_paddle(
+    image_path: Any,
+    *,
+    page_number: int,
+    service_url: str | None,
+) -> Any:
+    if service_url:
+        from gwanbo_ocr.runners.paddle_service import PaddleOcrServiceRunner
+
+        service_runner = PaddleOcrServiceRunner(service_url, lang="korean")
+        return service_runner.transcribe(Path(str(image_path)), page_number=page_number)
+
     from gwanbo_ocr.runners.paddle import PaddleOcrRunner
 
-    runner = PaddleOcrRunner(lang="korean")
-    return runner.transcribe(image_path, page_number=page_number)
+    local_runner = PaddleOcrRunner(lang="korean")
+    return local_runner.transcribe(image_path, page_number=page_number)

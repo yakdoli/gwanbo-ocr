@@ -15,7 +15,8 @@ def test_markitdown_service_convert_path_uses_shared_conversion(
 ) -> None:
     import scripts.markitdown_server as server
 
-    monkeypatch.setenv("GWANBO_SERVICE_ALLOWED_ROOTS", str(tmp_path))
+    monkeypatch.setenv("GWANBO_SERVICE_INPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("GWANBO_SERVICE_OUTPUT_ROOTS", str(tmp_path))
     output = tmp_path / "doc.md"
     output.write_text("converted markdown", encoding="utf-8")
 
@@ -55,12 +56,70 @@ def test_markitdown_service_rejects_paths_outside_allowed_roots(monkeypatch: Any
     assert "not under allowed roots" in response.json()["detail"]
 
 
+def test_markitdown_service_rejects_outputs_under_input_roots(monkeypatch: Any) -> None:
+    import scripts.markitdown_server as server
+
+    monkeypatch.delenv("GWANBO_SERVICE_ALLOWED_ROOTS", raising=False)
+    monkeypatch.delenv("GWANBO_SERVICE_INPUT_ROOTS", raising=False)
+    monkeypatch.delenv("GWANBO_SERVICE_OUTPUT_ROOTS", raising=False)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/convert/path",
+        json={
+            "file_path": "/root/peti/artifacts/doc.pdf",
+            "output_path": "/root/peti/artifacts/out.md",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not under allowed roots" in response.json()["detail"]
+
+
+def test_markitdown_service_rejects_bad_batch_output_dir(monkeypatch: Any) -> None:
+    import scripts.markitdown_server as server
+
+    monkeypatch.setenv("GWANBO_SERVICE_ALLOWED_ROOTS", "/workspace/runs")
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/convert/batch",
+        json={
+            "file_paths": ["/workspace/runs/doc.pdf"],
+            "output_dir": "/etc/out",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not under allowed roots" in response.json()["detail"]
+
+
+def test_markitdown_service_legacy_roots_do_not_allow_outputs(monkeypatch: Any) -> None:
+    import scripts.markitdown_server as server
+
+    monkeypatch.setenv("GWANBO_SERVICE_ALLOWED_ROOTS", "/root/peti/artifacts")
+    monkeypatch.delenv("GWANBO_SERVICE_OUTPUT_ROOTS", raising=False)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/convert/path",
+        json={
+            "file_path": "/root/peti/artifacts/doc.pdf",
+            "output_path": "/root/peti/artifacts/out.md",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not under allowed roots" in response.json()["detail"]
+
+
 def test_markitdown_service_batch_suffixes_duplicate_stems(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     import scripts.markitdown_server as server
 
-    monkeypatch.setenv("GWANBO_SERVICE_ALLOWED_ROOTS", str(tmp_path))
+    monkeypatch.setenv("GWANBO_SERVICE_INPUT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("GWANBO_SERVICE_OUTPUT_ROOTS", str(tmp_path))
     inputs = [tmp_path / "a" / "doc.pdf", tmp_path / "b" / "doc.pdf"]
     for item in inputs:
         item.parent.mkdir()

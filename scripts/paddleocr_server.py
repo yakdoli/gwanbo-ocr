@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from gwanbo_ocr.runners.paddle import PaddleOcrRunner, PaddleOcrVlRunner
-from scripts.service_paths import resolve_allowed_path
+from scripts.service_paths import resolve_allowed_input_path
 
 app = FastAPI(
     title="Gwanbo PaddleOCR API",
@@ -51,7 +51,7 @@ async def health_check() -> dict[str, Any]:
 @app.post("/ocr/classic")
 async def ocr_classic(request: ClassicOcrRequest) -> dict[str, Any]:
     try:
-        image_path = resolve_allowed_path(request.image_path)
+        image_path = resolve_allowed_input_path(request.image_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not image_path.exists():
@@ -66,7 +66,7 @@ async def ocr_classic(request: ClassicOcrRequest) -> dict[str, Any]:
 @app.post("/ocr/vl")
 async def ocr_vl(request: VlOcrRequest) -> dict[str, Any]:
     try:
-        image_path = resolve_allowed_path(request.image_path)
+        image_path = resolve_allowed_input_path(request.image_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not image_path.exists():

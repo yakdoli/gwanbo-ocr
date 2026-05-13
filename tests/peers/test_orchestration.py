@@ -293,11 +293,31 @@ class TestRunPeerReviewManifest:
         assert (output_dir / "metadata.json").exists()
         assert (output_dir / "summary.json").exists()
         assert (output_dir / "samples" / "item-001" / "source.json").exists()
+        assert (output_dir / "samples" / "item-001" / "peer_samples.json").exists()
+        assert (output_dir / "samples" / "item-001" / "diff_summary.json").exists()
         assert (output_dir / "samples" / "item-001" / "peer_samples.md").exists()
 
         index = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
         assert "item-001" in index
         assert index["item-001"]["sample_artifact_dir"].endswith("samples/item-001")
+        assert index["item-001"]["sample_artifact_paths"]["source_json"].endswith(
+            "samples/item-001/source.json"
+        )
+
+        source = json.loads(
+            (output_dir / "samples" / "item-001" / "source.json").read_text(encoding="utf-8")
+        )
+        diff_summary = json.loads(
+            (output_dir / "samples" / "item-001" / "diff_summary.json").read_text(encoding="utf-8")
+        )
+        assert source["manifest_path"] == str(manifest)
+        assert source["sidecar_path"].endswith("items/item-001.json")
+        assert source["artifact_paths"]["peer_samples_json"].endswith(
+            "samples/item-001/peer_samples.json"
+        )
+        assert diff_summary["artifact_paths"]["source_json"].endswith(
+            "samples/item-001/source.json"
+        )
 
     def test_skips_existing_sidecars_when_not_forced(self, tmp_path: Path) -> None:
         pdf = _write_pdf(tmp_path / "doc.pdf")

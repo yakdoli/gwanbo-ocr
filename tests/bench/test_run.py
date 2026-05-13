@@ -365,10 +365,10 @@ def test_run_benchmark_falls_back_to_vllm_when_paddle_fails(
         def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
             return FakeResult()
 
-    import gwanbo_ocr.runners.paddle as paddle
+    import gwanbo_ocr.runners.paddle_service as paddle_service
     import gwanbo_ocr.runners.vllm_chat as vllm_chat
 
-    monkeypatch.setattr(paddle, "PaddleOcrRunner", FailingPaddle)
+    monkeypatch.setattr(paddle_service, "PaddleOcrServiceRunner", FailingPaddle)
     monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeVllm)
 
     run_benchmark(
@@ -383,3 +383,70 @@ def test_run_benchmark_falls_back_to_vllm_when_paddle_fails(
     )
     assert record["status"] == "ok"
     assert record["route"] == "paddle_to_vllm_fallback"
+
+
+def test_run_benchmark_uses_paddle_service_for_paddle_strategy(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    suite = tmp_path / "suite.jsonl"
+    suite.write_text(
+        json.dumps(
+            {
+                "sample_id": "s1",
+                "image_path": str(image),
+                "page_number": 1,
+                "strategy": "ocr_paddle_simple",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, Any] = {}
+
+    class FakeResult:
+        text = "paddle ok"
+        data = {"text": "paddle ok"}
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeServicePaddle:
+        def __init__(self, base_url: str, **kwargs: Any) -> None:
+            captured["base_url"] = base_url
+            captured["kwargs"] = kwargs
+
+        def transcribe(self, image_path: Path, *, page_number: int | None = None) -> FakeResult:
+            captured["image_path"] = image_path
+            captured["page_number"] = page_number
+            return FakeResult()
+
+    class ShouldNotUseLocalPaddle:
+        def __init__(self, **_kwargs: Any) -> None:
+            raise AssertionError("host PaddleOCR runner should not be constructed")
+
+    import gwanbo_ocr.runners.paddle as paddle
+    import gwanbo_ocr.runners.paddle_service as paddle_service
+
+    monkeypatch.setenv("GWANBO_PADDLEOCR_SERVICE_URL", "http://paddle-service:8080")
+    monkeypatch.setattr(paddle_service, "PaddleOcrServiceRunner", FakeServicePaddle)
+    monkeypatch.setattr(paddle, "PaddleOcrRunner", ShouldNotUseLocalPaddle)
+
+    summary = run_benchmark(
+        suite=str(suite),
+        runner_name="direct-model",
+        run_dir=tmp_path / "run",
+        concurrency=1,
+        enforce_strategy_routing=True,
+    )
+
+    record = json.loads(
+        (tmp_path / "run" / "results.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    assert summary["paddle_service_url"] == "http://paddle-service:8080"
+    assert captured["base_url"] == "http://paddle-service:8080"
+    assert captured["image_path"] == image
+    assert captured["page_number"] == 1
+    assert record["status"] == "ok"
+    assert record["route"] == "paddle_primary"

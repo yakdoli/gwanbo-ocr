@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from gwanbo_ocr.conversion import ConversionError, convert_document
-from scripts.service_paths import resolve_allowed_path
+from scripts.service_paths import resolve_allowed_input_path, resolve_allowed_output_path
 
 app = FastAPI(
     title="Gwanbo MarkItDown OCR API",
@@ -55,8 +55,10 @@ async def convert_path(request: ConversionRequest) -> dict[str, Any]:
     if not request.file_path:
         raise HTTPException(status_code=400, detail="file_path is required")
     try:
-        input_path = resolve_allowed_path(request.file_path)
-        output_path = resolve_allowed_path(request.output_path) if request.output_path else None
+        input_path = resolve_allowed_input_path(request.file_path)
+        output_path = (
+            resolve_allowed_output_path(request.output_path) if request.output_path else None
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _convert_path(
@@ -99,13 +101,16 @@ async def convert_file(
 
 @app.post("/convert/batch")
 async def convert_batch(request: BatchConversionRequest) -> dict[str, Any]:
-    output_dir = resolve_allowed_path(request.output_dir)
+    try:
+        output_dir = resolve_allowed_output_path(request.output_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     output_names = _unique_output_names([Path(path) for path in request.file_paths])
     results: dict[str, Any] = {}
     for index, file_path in enumerate(request.file_paths):
         try:
             results[file_path] = _convert_path(
-                resolve_allowed_path(file_path),
+                resolve_allowed_input_path(file_path),
                 output=output_dir / output_names[index],
                 mode=request.mode,
                 llm_base_url=request.llm_base_url,
@@ -132,8 +137,8 @@ def _convert_path(
     llm_api_key: str | None,
     llm_prompt: str | None,
 ) -> dict[str, Any]:
-    input_path = resolve_allowed_path(input_path)
-    output = resolve_allowed_path(output)
+    input_path = resolve_allowed_input_path(input_path)
+    output = resolve_allowed_output_path(output)
     try:
         summary = convert_document(
             input_path=input_path,
@@ -156,7 +161,9 @@ def _convert_path(
 
 
 def _default_output_path() -> Path:
-    return resolve_allowed_path(os.getenv("MARKITDOWN_OUTPUT_DIR", "/tmp/gwanbo-ocr-markitdown"))
+    return resolve_allowed_output_path(
+        os.getenv("MARKITDOWN_OUTPUT_DIR", "/tmp/gwanbo-ocr-markitdown")
+    )
 
 
 def _unique_output_names(paths: list[Path]) -> list[str]:

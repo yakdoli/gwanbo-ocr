@@ -29,6 +29,8 @@ PEER_METHOD_TO_STRATEGY = {
     "markitdown": "native_text_body",
     "pdfplumber": "native_pdfplumber_table",
     "paddle_ocr": "ocr_paddle_simple",
+    "markitdown_ocr_llm": "ocr_vlm_structured",
+    "paddle_ocr_vl": "ocr_vlm_structured",
     "vlm_ocr": "ocr_vlm_structured",
 }
 
@@ -587,6 +589,7 @@ def run_pipeline(
         run_dir=bench_run_dir,
         base_url=base_url,
         api_key=api_key,
+        paddle_service_url=paddle_service_url,
         concurrency=concurrency,
         enforce_strategy_routing=enforce_strategy_routing,
         preflight_vllm=preflight_vllm,

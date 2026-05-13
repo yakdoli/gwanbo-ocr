@@ -84,6 +84,28 @@ def test_convert_file_forwards_mode_and_llm_options(tmp_path: Path, monkeypatch:
     assert captured["llm_model"] == "Qwen/Qwen3.6-35B-A3B-FP8"
 
 
+def test_convert_manifest_rejects_invalid_mode(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text("", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            "manifest",
+            "--input",
+            str(manifest),
+            "--output",
+            str(tmp_path / "out"),
+            "--mode",
+            "invalid",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "unsupported conversion mode" in result.output
+
+
 def test_pdf_render_help() -> None:
     result = runner.invoke(app, ["pdf", "render", "--help"])
     assert result.exit_code == 0
@@ -243,6 +265,47 @@ def test_strategy_pipeline_forwards_service_peer_options(tmp_path: Path, monkeyp
     assert captured["markitdown_llm_model"] == "Qwen/Qwen3.6-35B-A3B-FP8"
     assert captured["paddle_service_url"] == "http://127.0.0.1:8082"
     assert captured["paddle_vl_service_url"] == "http://127.0.0.1:8082"
+
+
+def test_strategy_pipeline_reads_container_service_env(tmp_path: Path, monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_pipeline(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"strategy_eval": {}, "bench_run": {}}
+
+    import gwanbo_ocr.strategy as strategy
+
+    monkeypatch.setattr(strategy, "run_pipeline", fake_run_pipeline)
+
+    result = runner.invoke(
+        app,
+        [
+            "strategy",
+            "pipeline",
+            "--manifest",
+            str(tmp_path / "manifest.jsonl"),
+            "--output",
+            str(tmp_path / "out"),
+            "--markitdown-ocr-llm",
+            "--paddle",
+            "--paddle-vl",
+        ],
+        env={
+            "GWANBO_QWEN_BASE_URL": "http://vllm-qwen:8000/v1",
+            "GWANBO_MARKITDOWN_SERVICE_URL": "http://markitdown-ocr-api:8080",
+            "GWANBO_PADDLEOCR_SERVICE_URL": "http://paddleocr-api:8080",
+            "GWANBO_PADDLE_VL_BASE_URL": "http://paddleocr-vl-vllm:8000/v1",
+        },
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["base_url"] == "http://vllm-qwen:8000/v1"
+    assert captured["markitdown_service_url"] == "http://markitdown-ocr-api:8080"
+    assert captured["markitdown_llm_base_url"] == "http://vllm-qwen:8000/v1"
+    assert captured["paddle_service_url"] == "http://paddleocr-api:8080"
+    assert captured["paddle_vl_service_url"] == "http://paddleocr-api:8080"
+    assert captured["paddle_vl_server_url"] == "http://paddleocr-vl-vllm:8000/v1"
 
 
 def test_manifest_build_with_stub_peti_root(tmp_path: Path) -> None:

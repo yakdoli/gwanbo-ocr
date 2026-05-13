@@ -7,7 +7,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gwanbo_ocr.conversion import convert_document, convert_manifest
+from gwanbo_ocr.conversion import ConversionError, convert_document, convert_manifest
 
 
 class FakeResult:
@@ -94,6 +94,30 @@ def test_convert_manifest_writes_result_manifest(tmp_path: Path, monkeypatch: An
     assert rows[0]["status"] == "ok"
     assert rows[0]["id"] == "item-1"
     assert Path(rows[0]["markdown_path"]).exists()
+
+
+def test_convert_manifest_rejects_invalid_mode_before_writing(tmp_path: Path) -> None:
+    source = tmp_path / "doc.pdf"
+    source.write_bytes(b"%PDF")
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps({"id": "item-1", "pdf_path": str(source)}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "converted"
+
+    try:
+        convert_manifest(
+            manifest_path=manifest,
+            output_dir=output_dir,
+            mode="invalid",
+        )
+    except ConversionError as exc:
+        assert "unsupported conversion mode" in str(exc)
+    else:
+        raise AssertionError("invalid mode should fail before row conversion")
+
+    assert not (output_dir / "manifest.jsonl").exists()
 
 
 def test_convert_manifest_suffixes_duplicate_output_keys(tmp_path: Path, monkeypatch: Any) -> None:

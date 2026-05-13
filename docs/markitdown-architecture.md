@@ -93,7 +93,6 @@ services:
 - `POST /convert/path` - 경로 기반 변환
 - `POST /convert/batch` - 배치 변환
 - `GET /health` - 헬스 체크
-- `GET /` - API 정보
 
 ---
 
@@ -103,7 +102,7 @@ services:
 
 ```bash
 pip install -e ".[pdf]"
-gwanbo-ocr convert manifest --manifest pdf_manifest.jsonl --output markdown/
+gwanbo-ocr convert manifest --input pdf_manifest.jsonl --output markdown/
 ```
 
 **용도:** 개발, 소규모 배치
@@ -128,7 +127,7 @@ docker-compose -f docker-compose.markitdown.yml up -d markitdown
 
 # 컨테이너 내에서 gwanbo-ocr 명령 실행
 docker-compose exec markitdown gwanbo-ocr convert manifest \
-  --manifest /workspace/pdf_manifest.jsonl \
+  --input /workspace/pdf_manifest.jsonl \
   --output /workspace/markdown \
   --workers 4
 ```
@@ -142,7 +141,7 @@ docker-compose exec markitdown gwanbo-ocr convert manifest \
 ```bash
 docker-compose -f docker-compose.markitdown.yml --profile server up -d
 
-curl -X POST http://localhost:8080/convert/batch \
+curl -X POST http://localhost:8081/convert/batch \
   -H "Content-Type: application/json" \
   -d '{"file_paths": [...], "output_dir": "..."}'
 ```
@@ -174,8 +173,8 @@ python -c "import multiprocessing; print(multiprocessing.cpu_count())"
 
 # 권장값: CPU 수 - 1
 gwanbo-ocr convert manifest \
-  --workers 7 \  # 8 core - 1
-  --manifest pdf_manifest.jsonl \
+  --workers 7 \
+  --input pdf_manifest.jsonl \
   --output markdown/
 ```
 
@@ -322,9 +321,10 @@ pip install --force-reinstall markitdown[pdf]
 
 ```bash
 # 워커 수 감소
+# 배치 크기 감소
 gwanbo-ocr convert manifest \
-  --workers 1 \  # 병렬도 감소
-  --limit 10 \   # 배치 크기 감소
+  --workers 1 \
+  --limit 10 \
   ...
 ```
 

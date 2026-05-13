@@ -26,6 +26,14 @@ def test_full_compose_exposes_expected_services_and_ports() -> None:
     assert "127.0.0.1:8082:8080" in services["paddleocr-api"]["ports"]
 
 
+def test_markitdown_compose_uses_modern_compose_schema() -> None:
+    payload = yaml.safe_load(Path("docker-compose.markitdown.yml").read_text(encoding="utf-8"))
+
+    assert "version" not in payload
+    assert "services" in payload
+    assert "127.0.0.1:8081:8080" in payload["services"]["markitdown-server"]["ports"]
+
+
 def test_models_yaml_records_container_service_defaults() -> None:
     payload = yaml.safe_load(Path("configs/models.yaml").read_text(encoding="utf-8"))
 

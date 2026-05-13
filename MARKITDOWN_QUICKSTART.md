@@ -62,7 +62,7 @@ docker run --rm -i markitdown:latest --help
 docker build -f Dockerfile.markitdown.server -t markitdown-server:latest .
 
 # 테스트
-docker run --rm -p 8080:8080 markitdown-server:latest
+docker run --rm -p 8081:8080 markitdown-server:latest
 ```
 
 ### 모든 이미지 빌드
@@ -94,13 +94,13 @@ docker run --rm \
 ```bash
 # 로컬에서
 gwanbo-ocr convert manifest \
-  --manifest runs/my-run/pdf_manifest.jsonl \
+  --input runs/my-run/pdf_manifest.jsonl \
   --output runs/my-run/markdown \
   --workers 4
 
 # 옵션
 gwanbo-ocr convert manifest \
-  --manifest runs/my-run/pdf_manifest.jsonl \
+  --input runs/my-run/pdf_manifest.jsonl \
   --output runs/my-run/markdown \
   --key sample_id \
   --pdf-path-field pdf_path \
@@ -143,7 +143,7 @@ docker-compose -f docker-compose.markitdown.yml down
 docker-compose -f docker-compose.markitdown.yml --profile server up -d markitdown-server
 
 # 헬스 체크
-curl http://localhost:8080/health
+curl http://localhost:8081/health
 
 # 중지
 docker-compose -f docker-compose.markitdown.yml --profile server down
@@ -160,40 +160,38 @@ docker-compose -f docker-compose.markitdown.yml --profile server down
 docker-compose -f docker-compose.markitdown.yml --profile server up -d markitdown-server
 
 # 또는 로컬에서
-python scripts/markitdown_server.py
+uvicorn scripts.markitdown_server:app --host 0.0.0.0 --port 8081
 ```
 
 ### API 문서
 
 브라우저에서 다음 주소 방문:
-- **Swagger UI**: http://localhost:8080/docs
-- **ReDoc**: http://localhost:8080/redoc
+- **Swagger UI**: http://localhost:8081/docs
+- **ReDoc**: http://localhost:8081/redoc
 
 ### 1. 파일 업로드 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/file" \
+curl -X POST "http://localhost:8081/convert/file" \
   -F "file=@document.pdf" \
-  -F "include_metadata=true" \
   | jq '.markdown_content'
 ```
 
 ### 2. 경로 기반 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/path" \
+curl -X POST "http://localhost:8081/convert/path" \
   -H "Content-Type: application/json" \
   -d '{
     "file_path": "/workspace/runs/sample.pdf",
-    "output_path": "/workspace/outputs/sample.md",
-    "include_metadata": true
+    "output_path": "/workspace/outputs/sample.md"
   }' | jq '.'
 ```
 
 ### 3. 배치 변환
 
 ```bash
-curl -X POST "http://localhost:8080/convert/batch" \
+curl -X POST "http://localhost:8081/convert/batch" \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": [
@@ -207,13 +205,7 @@ curl -X POST "http://localhost:8080/convert/batch" \
 ### 4. 헬스 체크
 
 ```bash
-curl http://localhost:8080/health | jq '.'
-```
-
-### 5. API 정보
-
-```bash
-curl http://localhost:8080/ | jq '.'
+curl http://localhost:8081/health | jq '.'
 ```
 
 ---
@@ -246,7 +238,7 @@ gwanbo-ocr pdf classify \
 # 3. 마크다운 변환
 echo "📄 Converting to Markdown..."
 gwanbo-ocr convert manifest \
-  --manifest runs/$RUN_ID/classification/manifest.jsonl \
+  --input runs/$RUN_ID/classification/manifest.jsonl \
   --output runs/$RUN_ID/markdown \
   --workers 4 \
   --skip-errors
@@ -270,7 +262,7 @@ import json
 import requests
 from pathlib import Path
 
-API_URL = "http://localhost:8080"
+API_URL = "http://localhost:8081"
 
 # PDF 목록 수집
 pdfs = [str(p) for p in Path("/root/gwanbo-ocr/runs").rglob("*.pdf")][:10]
@@ -328,7 +320,7 @@ for pdf_file in Path("pdfs").glob("*.pdf"):
 ```bash
 # 4개 워커로 병렬 처리
 gwanbo-ocr convert manifest \
-  --manifest pdf_manifest.jsonl \
+  --input pdf_manifest.jsonl \
   --output markdown_output \
   --workers 4
 ```

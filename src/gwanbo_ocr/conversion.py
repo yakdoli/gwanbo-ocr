@@ -112,6 +112,9 @@ def convert_manifest(
     timeout_seconds: float = 120,
 ) -> dict[str, Any]:
     """Convert every PDF-like row in a manifest and write a conversion manifest."""
+    if mode not in {"plain", "ocr-llm"}:
+        raise ConversionError(f"unsupported conversion mode: {mode}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     result_manifest = output_dir / "manifest.jsonl"
 
