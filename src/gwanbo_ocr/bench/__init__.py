@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .report import (
     SUCCESS_STATUSES,
     format_throughput_report,

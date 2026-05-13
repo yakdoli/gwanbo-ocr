@@ -120,7 +120,8 @@ def percentile(values: Iterable[float], percent: float) -> float:
 
 def _as_mapping(record: Any) -> dict[str, Any]:
     if hasattr(record, "to_dict"):
-        return record.to_dict()
+        mapped: dict[str, Any] = record.to_dict()
+        return mapped
     return dict(record)
 
 
