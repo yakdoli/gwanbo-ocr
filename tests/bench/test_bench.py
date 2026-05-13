@@ -193,7 +193,7 @@ def test_run_benchmark_preflight_rejects_http_errors(tmp_path: Path, monkeypatch
     )
 
     def fake_urlopen(req: Any, timeout: float) -> Any:
-        raise url_error.HTTPError(req.full_url, 404, "Not Found", None, None)
+        raise url_error.HTTPError(req.full_url, 404, "Not Found", None, None)  # type: ignore[arg-type]
 
     import gwanbo_ocr.runners.preflight as preflight_mod
 
