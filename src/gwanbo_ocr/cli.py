@@ -207,6 +207,8 @@ def bench_run(
         api_key=api_key,
         concurrency=concurrency,
         enforce_strategy_routing=enforce_strategy_routing,
+        preflight_vllm=preflight_vllm,
+        preflight_timeout_s=preflight_timeout_s,
         limit=limit,
     )
     _echo_summary(summary)
@@ -297,133 +299,50 @@ def strategy_pipeline(
         "--enforce-strategy-routing/--no-enforce-strategy-routing",
         help="Route tasks by strategy and apply fallback policies during bench run.",
     ),
+    preflight_vllm: bool = typer.Option(
+        True,
+        "--preflight-vllm/--no-preflight-vllm",
+        help="Check VLM endpoint reachability before benchmark execution.",
+    ),
+    preflight_timeout_s: float = typer.Option(
+        5.0,
+        "--preflight-timeout-s",
+        help="Timeout in seconds for VLM endpoint preflight check.",
+    ),
     run_peer: bool = typer.Option(True, "--peer/--no-peer", help="Run peer review stages."),
     run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
     limit: int | None = typer.Option(None, help="Optional row/task cap for quick runs."),
 ) -> None:
     """Run end-to-end strategy pipeline from profiling to strategy evaluation."""
-    from gwanbo_ocr.bench import run_benchmark, score_benchmark
-    from gwanbo_ocr.peer_review import aggregate_peer_scores, run_peer_review_manifest
-    from gwanbo_ocr.pdf.io import write_json_atomic
-    from gwanbo_ocr.pdf.profile import profile_manifest
-    from gwanbo_ocr.render import render_manifest
-    from gwanbo_ocr.strategy import (
-        build_strategy_benchmark_suite,
-        cluster_profiles,
-        evaluate_clusters,
-    )
+    from gwanbo_ocr.strategy import run_pipeline
 
-    output.mkdir(parents=True, exist_ok=True)
-    profiles_dir = output / "profiles"
-    clusters_dir = output / "clusters"
-    images_dir = output / "images"
-    suite_path = output / "bench" / "strategy_suite.jsonl"
-    bench_run_dir = output / "bench" / runner
-    bench_report_dir = output / "reports" / runner
-    peer_dir = output / "peer_review"
-    peer_report_dir = output / "reports" / "peer"
-    strategy_eval_dir = output / "strategy_eval"
-
-    profile_summary = profile_manifest(
-        manifest_path=manifest,
-        output_dir=profiles_dir,
-        max_pages=None if profile_max_pages == 0 else profile_max_pages,
-        workers=workers,
-        sample_per_bucket=None if sample_per_bucket == 0 else sample_per_bucket,
-        limit=limit,
-    )
-    cluster_summary = cluster_profiles(
-        profiles_path=profiles_dir / "manifest.jsonl",
-        output_dir=clusters_dir,
-        sample_keys=cluster_sample_keys,
-    )
-    render_summary = render_manifest(
-        manifest_path=manifest,
-        output_dir=images_dir,
-        max_pages=None if render_max_pages == 0 else render_max_pages,
-        workers=render_workers,
-        limit=limit,
-    )
-    suite_summary = build_strategy_benchmark_suite(
-        render_manifest_path=images_dir / "manifest.jsonl",
-        clusters_path=clusters_dir / "cluster_manifest.jsonl",
-        output_path=suite_path,
-    )
-    bench_run_summary = run_benchmark(
-        suite=str(suite_path),
-        runner_name=runner,
-        run_dir=bench_run_dir,
+    pipeline_summary = run_pipeline(
+        manifest=manifest,
+        output=output,
+        runner=runner,
         base_url=base_url,
         api_key=api_key,
+        sample_per_bucket=sample_per_bucket,
+        profile_max_pages=profile_max_pages,
+        render_max_pages=render_max_pages,
+        cluster_sample_keys=cluster_sample_keys,
+        workers=workers,
+        render_workers=render_workers,
         concurrency=concurrency,
         enforce_strategy_routing=enforce_strategy_routing,
+        preflight_vllm=preflight_vllm,
+        preflight_timeout_s=preflight_timeout_s,
+        run_peer=run_peer,
+        run_paddle=run_paddle,
         limit=limit,
     )
-    bench_score_summary = score_benchmark(run_dir=bench_run_dir, output_dir=bench_report_dir)
-
-    peer_run_summary: dict[str, Any] | None = None
-    peer_score_summary: dict[str, Any] | None = None
-    peer_score_report_path: Path | None = None
-    if run_peer:
-        peer_run_summary = run_peer_review_manifest(
-            manifest_path=manifest,
-            output_dir=peer_dir,
-            run_paddle=run_paddle,
-            max_pages=None if render_max_pages == 0 else render_max_pages,
-            workers=workers,
-            limit=limit,
-        )
-        peer_score_summary = aggregate_peer_scores(peer_dir)
-        peer_report_dir.mkdir(parents=True, exist_ok=True)
-        peer_score_report_path = peer_report_dir / "peer_score_report.json"
-        write_json_atomic(peer_score_report_path, peer_score_summary)
-
-    eval_summary = evaluate_clusters(
-        clusters_path=clusters_dir / "cluster_manifest.jsonl",
-        output_dir=strategy_eval_dir,
-        bench_scores_path=bench_report_dir / "scores.jsonl",
-        peer_score_report_path=peer_score_report_path,
-    )
-
-    by_route_payload = bench_run_summary.get("by_route")
-    by_route = by_route_payload if isinstance(by_route_payload, dict) else {}
-    throughput_payload = bench_run_summary.get("throughput")
-    throughput = throughput_payload if isinstance(throughput_payload, dict) else {}
-    by_status_payload = throughput.get("by_status")
-    by_status = by_status_payload if isinstance(by_status_payload, dict) else {}
-    total_tasks = int(bench_run_summary.get("tasks") or 0)
-    fallback_count = int(by_route.get("paddle_to_vllm_fallback") or 0)
-    error_count = int(by_status.get("error") or 0)
-    route_metrics = {
-        "fallback_count": fallback_count,
-        "fallback_rate": round((fallback_count / total_tasks), 4) if total_tasks else 0.0,
-        "error_count": error_count,
-        "error_rate": round((error_count / total_tasks), 4) if total_tasks else 0.0,
-    }
-
-    pipeline_summary = {
-        "status": "ok",
-        "manifest": str(manifest),
-        "output": str(output),
-        "profile": profile_summary,
-        "cluster": cluster_summary,
-        "render": render_summary,
-        "suite": suite_summary,
-        "bench_run": bench_run_summary,
-        "bench_score": bench_score_summary,
-        "route_metrics": route_metrics,
-        "peer_run": peer_run_summary,
-        "peer_score": peer_score_summary,
-        "strategy_eval": eval_summary,
-    }
-    write_json_atomic(output / "pipeline_summary.json", pipeline_summary)
     _echo_summary(
         {
             "status": "ok",
             "output": str(output),
             "pipeline_summary": str(output / "pipeline_summary.json"),
-            "evaluated_clusters": eval_summary.get("evaluated_clusters", 0),
-            "bench_tasks": bench_run_summary.get("tasks", 0),
+            "evaluated_clusters": pipeline_summary.get("strategy_eval", {}).get("evaluated_clusters", 0),
+            "bench_tasks": pipeline_summary.get("bench_run", {}).get("tasks", 0),
         }
     )
 

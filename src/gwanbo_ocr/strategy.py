@@ -351,9 +351,7 @@ def _load_bench_metrics_by_strategy(path: str | Path | None) -> dict[str, dict[s
         rows = [row for row in read_jsonl(path) if isinstance(row, dict)]
     except OSError:
         return {}
-    aggregates: dict[str, dict[str, list[float]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
+    aggregates: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     status_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "errors": 0})
     for row in rows:
         strategy = str(row.get("strategy") or "").strip()
@@ -503,3 +501,140 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def run_pipeline(
+    manifest: Path,
+    output: Path,
+    *,
+    runner: str = "qwen36_baseline",
+    base_url: str = "http://127.0.0.1:8000/v1",
+    api_key: str = "dummy",
+    sample_per_bucket: int = 20,
+    profile_max_pages: int = 3,
+    render_max_pages: int = 1,
+    cluster_sample_keys: int = 20,
+    workers: int = 1,
+    render_workers: int = 4,
+    concurrency: int = 4,
+    enforce_strategy_routing: bool = True,
+    preflight_vllm: bool = True,
+    preflight_timeout_s: float = 5.0,
+    run_peer: bool = True,
+    run_paddle: bool = False,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Run the end-to-end strategy pipeline: profile → cluster → render → bench → evaluate."""
+    from gwanbo_ocr.bench import run_benchmark, score_benchmark
+    from gwanbo_ocr.pdf.io import write_json_atomic
+    from gwanbo_ocr.pdf.profile import profile_manifest
+    from gwanbo_ocr.peer_review import aggregate_peer_scores, run_peer_review_manifest
+    from gwanbo_ocr.render import render_manifest
+
+    output.mkdir(parents=True, exist_ok=True)
+    profiles_dir = output / "profiles"
+    clusters_dir = output / "clusters"
+    images_dir = output / "images"
+    suite_path = output / "bench" / "strategy_suite.jsonl"
+    bench_run_dir = output / "bench" / runner
+    bench_report_dir = output / "reports" / runner
+    peer_dir = output / "peer_review"
+    peer_report_dir = output / "reports" / "peer"
+    strategy_eval_dir = output / "strategy_eval"
+
+    profile_summary = profile_manifest(
+        manifest_path=manifest,
+        output_dir=profiles_dir,
+        max_pages=None if profile_max_pages == 0 else profile_max_pages,
+        workers=workers,
+        sample_per_bucket=None if sample_per_bucket == 0 else sample_per_bucket,
+        limit=limit,
+    )
+    cluster_summary = cluster_profiles(
+        profiles_path=profiles_dir / "manifest.jsonl",
+        output_dir=clusters_dir,
+        sample_keys=cluster_sample_keys,
+    )
+    render_summary = render_manifest(
+        manifest_path=manifest,
+        output_dir=images_dir,
+        max_pages=None if render_max_pages == 0 else render_max_pages,
+        workers=render_workers,
+        limit=limit,
+    )
+    suite_summary = build_strategy_benchmark_suite(
+        render_manifest_path=images_dir / "manifest.jsonl",
+        clusters_path=clusters_dir / "cluster_manifest.jsonl",
+        output_path=suite_path,
+    )
+    bench_run_summary = run_benchmark(
+        suite=str(suite_path),
+        runner_name=runner,
+        run_dir=bench_run_dir,
+        base_url=base_url,
+        api_key=api_key,
+        concurrency=concurrency,
+        enforce_strategy_routing=enforce_strategy_routing,
+        preflight_vllm=preflight_vllm,
+        preflight_timeout_s=preflight_timeout_s,
+        limit=limit,
+    )
+    bench_score_summary = score_benchmark(run_dir=bench_run_dir, output_dir=bench_report_dir)
+
+    peer_run_summary: dict[str, Any] | None = None
+    peer_score_summary: dict[str, Any] | None = None
+    peer_score_report_path: Path | None = None
+    if run_peer:
+        peer_run_summary = run_peer_review_manifest(
+            manifest_path=manifest,
+            output_dir=peer_dir,
+            run_paddle=run_paddle,
+            max_pages=None if render_max_pages == 0 else render_max_pages,
+            workers=workers,
+            limit=limit,
+        )
+        peer_score_summary = aggregate_peer_scores(peer_dir)
+        peer_report_dir.mkdir(parents=True, exist_ok=True)
+        peer_score_report_path = peer_report_dir / "peer_score_report.json"
+        write_json_atomic(peer_score_report_path, peer_score_summary)
+
+    eval_summary = evaluate_clusters(
+        clusters_path=clusters_dir / "cluster_manifest.jsonl",
+        output_dir=strategy_eval_dir,
+        bench_scores_path=bench_report_dir / "scores.jsonl",
+        peer_score_report_path=peer_score_report_path,
+    )
+
+    by_route_payload = bench_run_summary.get("by_route")
+    by_route = by_route_payload if isinstance(by_route_payload, dict) else {}
+    throughput_payload = bench_run_summary.get("throughput")
+    throughput = throughput_payload if isinstance(throughput_payload, dict) else {}
+    by_status_payload = throughput.get("by_status")
+    by_status = by_status_payload if isinstance(by_status_payload, dict) else {}
+    total_tasks = int(bench_run_summary.get("tasks") or 0)
+    fallback_count = int(by_route.get("paddle_to_vllm_fallback") or 0)
+    error_count = int(by_status.get("error") or 0)
+    route_metrics = {
+        "fallback_count": fallback_count,
+        "fallback_rate": round((fallback_count / total_tasks), 4) if total_tasks else 0.0,
+        "error_count": error_count,
+        "error_rate": round((error_count / total_tasks), 4) if total_tasks else 0.0,
+    }
+
+    pipeline_summary = {
+        "status": "ok",
+        "manifest": str(manifest),
+        "output": str(output),
+        "profile": profile_summary,
+        "cluster": cluster_summary,
+        "render": render_summary,
+        "suite": suite_summary,
+        "bench_run": bench_run_summary,
+        "bench_score": bench_score_summary,
+        "route_metrics": route_metrics,
+        "peer_run": peer_run_summary,
+        "peer_score": peer_score_summary,
+        "strategy_eval": eval_summary,
+    }
+    write_json_atomic(output / "pipeline_summary.json", pipeline_summary)
+    return pipeline_summary
