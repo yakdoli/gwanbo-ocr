@@ -47,6 +47,8 @@ services = [
     "fastapi>=0.104,<0.116",
     "python-multipart>=0.0.6,<0.1",
     "uvicorn[standard]>=0.24,<0.31",
+    "httpx>=0.27,<1",
+    "requests>=2.30,<3",
 ]
 dev = [
     "build>=1.2,<2",
