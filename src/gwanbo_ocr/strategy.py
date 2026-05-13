@@ -573,7 +573,7 @@ def run_pipeline(
         sample_keys=cluster_sample_keys,
     )
     render_summary = render_manifest(
-        manifest_path=manifest,
+        manifest_path=Path(profile_summary["manifest"]),
         output_dir=images_dir,
         max_pages=None if render_max_pages == 0 else render_max_pages,
         workers=render_workers,
