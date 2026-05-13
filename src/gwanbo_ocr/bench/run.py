@@ -50,12 +50,15 @@ def run_benchmark(
     preflight_vllm: bool = False,
     preflight_timeout_s: float = 5.0,
     paddle_service_url: str | None = None,
+    gold_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     from gwanbo_ocr.runners.preflight import preflight_openai_endpoint
 
     output = Path(run_dir)
     output.mkdir(parents=True, exist_ok=True)
     tasks = _load_suite_tasks(suite)
+    if gold_manifest_path:
+        tasks = _merge_gold_references(tasks, gold_manifest_path)
     if limit is not None:
         tasks = tasks[:limit]
 
@@ -155,6 +158,7 @@ def _run_benchmark_task(
         "strategy": strategy,
         "cluster_id": task.get("cluster_id"),
         "strategy_confidence": task.get("strategy_confidence"),
+        "reference_text": task.get("reference_text") or task.get("gold_text") or None,
         "started_at": started_at,
         "pages": 1,
         "bytes_processed": _file_size(image_path),
@@ -352,6 +356,41 @@ def _transcribe_with_vllm(
         page_number=page_number,
         language_hint="ko,en",
     )
+
+
+def _merge_gold_references(
+    tasks: list[dict[str, Any]], gold_manifest_path: str | Path
+) -> list[dict[str, Any]]:
+    gold_path = Path(gold_manifest_path)
+    if not gold_path.exists():
+        return tasks
+    gold: dict[str, str] = {}
+    with gold_path.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ref = row.get("reference_text") or row.get("gold_text")
+            if not ref:
+                continue
+            key = row.get("sample_id") or row.get("pdf_key")
+            if key:
+                gold[str(key)] = str(ref)
+    updated: list[dict[str, Any]] = []
+    for task in tasks:
+        if task.get("reference_text"):
+            updated.append(task)
+            continue
+        key = task.get("sample_id") or task.get("pdf_key")
+        ref = gold.get(str(key)) if key else None
+        if ref:
+            task = {**task, "reference_text": ref}
+        updated.append(task)
+    return updated
 
 
 def _transcribe_with_paddle(

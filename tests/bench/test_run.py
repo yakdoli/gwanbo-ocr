@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from gwanbo_ocr.bench import resolve_runner_model, run_benchmark
+from gwanbo_ocr.bench.run import _merge_gold_references, _run_benchmark_task
 
 
 def test_resolve_runner_model_uses_model_config_alias(tmp_path: Path) -> None:
@@ -450,3 +451,102 @@ def test_run_benchmark_uses_paddle_service_for_paddle_strategy(
     assert captured["page_number"] == 1
     assert record["status"] == "ok"
     assert record["route"] == "paddle_primary"
+
+
+def test_reference_text_propagates_to_record(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+
+    class FakeResult:
+        text = "ocr output"
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeRunner:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeRunner)
+
+    task = {
+        "sample_id": "s1",
+        "image_path": str(image),
+        "page_number": 1,
+        "reference_text": "expected text",
+    }
+    record = _run_benchmark_task(
+        task,
+        runner_name="direct-model",
+        model_id="direct-model",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key="dummy",
+        enforce_strategy_routing=False,
+        paddle_service_url=None,
+    )
+    assert record["reference_text"] == "expected text"
+
+
+def test_gold_text_propagates_as_reference_text(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+
+    class FakeResult:
+        text = "ocr output"
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeRunner:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeRunner)
+
+    task = {
+        "sample_id": "s1",
+        "image_path": str(image),
+        "page_number": 1,
+        "gold_text": "gold expected",
+    }
+    record = _run_benchmark_task(
+        task,
+        runner_name="direct-model",
+        model_id="direct-model",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key="dummy",
+        enforce_strategy_routing=False,
+        paddle_service_url=None,
+    )
+    assert record["reference_text"] == "gold expected"
+
+
+def test_merge_gold_references_fills_missing(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(
+        json.dumps({"sample_id": "s1", "reference_text": "ref one"}) + "\n"
+        + json.dumps({"sample_id": "s2", "gold_text": "ref two"}) + "\n"
+        + json.dumps({"sample_id": "s4", "reference_text": "gold overwrite attempt"}) + "\n",
+        encoding="utf-8",
+    )
+    tasks: list[dict[str, Any]] = [
+        {"sample_id": "s1", "image_path": "a.png"},
+        {"sample_id": "s2", "image_path": "b.png"},
+        {"sample_id": "s3", "image_path": "c.png"},
+        {"sample_id": "s4", "image_path": "d.png", "reference_text": "already set"},
+    ]
+    result = _merge_gold_references(tasks, gold)
+    assert result[0]["reference_text"] == "ref one"
+    assert result[1]["reference_text"] == "ref two"
+    assert result[2].get("reference_text") is None
+    assert result[3]["reference_text"] == "already set"  # pre-set value wins over gold

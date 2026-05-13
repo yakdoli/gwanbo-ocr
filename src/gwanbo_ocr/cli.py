@@ -317,6 +317,9 @@ def bench_run(
         help="Timeout in seconds for VLM endpoint preflight check.",
     ),
     limit: int | None = typer.Option(None, help="Maximum page tasks to process."),
+    gold_manifest: Path | None = typer.Option(
+        None, "--gold-manifest", help="JSONL with sample_id→reference_text for scoring."
+    ),
 ) -> None:
     """Run OCR/VLM benchmark tasks for one runner."""
     from gwanbo_ocr.bench import run_benchmark
@@ -333,6 +336,7 @@ def bench_run(
         preflight_vllm=preflight_vllm,
         preflight_timeout_s=preflight_timeout_s,
         limit=limit,
+        gold_manifest_path=gold_manifest,
     )
     _echo_summary(summary)
 
@@ -501,6 +505,9 @@ def strategy_pipeline(
         None, "--paddle-vl-api-key", help="PaddleOCR-VL recognition server API key."
     ),
     limit: int | None = typer.Option(None, help="Optional row/task cap for quick runs."),
+    gold_manifest: Path | None = typer.Option(
+        None, "--gold-manifest", help="JSONL with sample_id→reference_text for scoring."
+    ),
 ) -> None:
     """Run end-to-end strategy pipeline from profiling to strategy evaluation."""
     from gwanbo_ocr.strategy import run_pipeline
@@ -537,6 +544,7 @@ def strategy_pipeline(
         paddle_vl_model=paddle_vl_model,
         paddle_vl_api_key=paddle_vl_api_key,
         limit=limit,
+        gold_manifest_path=gold_manifest,
     )
     _echo_summary(
         {

@@ -538,6 +538,7 @@ def run_pipeline(
     paddle_vl_model: str | None = None,
     paddle_vl_api_key: str | None = None,
     limit: int | None = None,
+    gold_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the end-to-end strategy pipeline: profile → cluster → render → bench → evaluate."""
     from gwanbo_ocr.bench import run_benchmark, score_benchmark
@@ -595,6 +596,7 @@ def run_pipeline(
         preflight_vllm=preflight_vllm,
         preflight_timeout_s=preflight_timeout_s,
         limit=limit,
+        gold_manifest_path=gold_manifest_path,
     )
     bench_score_summary = score_benchmark(run_dir=bench_run_dir, output_dir=bench_report_dir)
 
