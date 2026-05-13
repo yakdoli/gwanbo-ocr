@@ -375,7 +375,7 @@ def peer_run(
     progress_every: int = typer.Option(0, help="Log progress every N items."),
 ) -> None:
     """Run multi-method peer review on a PDF manifest."""
-    from gwanbo_ocr.peer_review import run_peer_review_manifest
+    from gwanbo_ocr.peers import run_peer_review_manifest
 
     summary = run_peer_review_manifest(
         manifest_path=manifest,
@@ -407,7 +407,7 @@ def peer_score(
 ) -> None:
     """Aggregate peer review scores across all sidecars and write a report."""
     from gwanbo_ocr.pdf.io import write_json_atomic
-    from gwanbo_ocr.peer_review import aggregate_peer_scores
+    from gwanbo_ocr.peers import aggregate_peer_scores
 
     try:
         report = aggregate_peer_scores(review_dir)

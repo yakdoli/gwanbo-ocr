@@ -528,7 +528,7 @@ def run_pipeline(
     from gwanbo_ocr.bench import run_benchmark, score_benchmark
     from gwanbo_ocr.pdf.io import write_json_atomic
     from gwanbo_ocr.pdf.profile import profile_manifest
-    from gwanbo_ocr.peer_review import aggregate_peer_scores, run_peer_review_manifest
+    from gwanbo_ocr.peers import aggregate_peer_scores, run_peer_review_manifest
     from gwanbo_ocr.render import render_manifest
 
     output.mkdir(parents=True, exist_ok=True)

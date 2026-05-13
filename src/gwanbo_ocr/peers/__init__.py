@@ -1,48 +1,17 @@
-"""Multi-method PDF extraction peer review.
-
-Five extraction peers are compared side-by-side for each PDF:
-
-    native_text  — pypdf/PyPDF2 direct text extraction
-    pdfplumber   — pdfplumber page.extract_text()
-    markitdown   — MarkItDown.convert() markdown output
-    paddle_ocr   — PyMuPDF render → PaddleOCR
-    vlm_ocr      — PyMuPDF render → OpenAI-compatible VLM endpoint
-
-Each peer result conforms to this schema:
-    status          ok | error | skipped
-    method          human-readable method identifier
-    text_extractable bool
-    text_chars      int
-    sample_text     str (up to sample_chars)
-    error           str | None
-    ...method-specific extras
-"""
-
 from __future__ import annotations
 
 import concurrent.futures
 import difflib
-import re
-import signal
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# Optional heavy dependencies — imported lazily so the module loads even when
-# the [pdf], [qwen], or [paddleocr] extras are not installed.
-_MarkItDown: Any
-try:
-    from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found]
-except ImportError:
-    _MarkItDown = None
+from ._helpers import SAMPLE_CHARS_DEFAULT, _iso_now, _make_vlm_runner, _norm_for_sim, _scope
+from .markitdown import extract_markitdown
+from .native import extract_native_text
+from .paddle import extract_paddle_ocr
+from .pdfplumber import extract_pdfplumber
+from .vlm import extract_vlm_ocr
 
-_pdfplumber: Any
-try:
-    import pdfplumber as _pdfplumber  # type: ignore[import-not-found]
-except ImportError:
-    _pdfplumber = None
-
-SAMPLE_CHARS_DEFAULT = 1200
 METHOD_PREFERENCE = {
     "vlm_ocr": 5,
     "paddle_ocr": 4,
@@ -51,231 +20,21 @@ METHOD_PREFERENCE = {
     "native_text": 1,
 }
 
-
-# ---------------------------------------------------------------------------
-# Extraction peers
-# ---------------------------------------------------------------------------
-
-
-def extract_native_text(
-    pdf_path: Path,
-    *,
-    max_pages: int | None = 1,
-    sample_chars: int = SAMPLE_CHARS_DEFAULT,
-    timeout_seconds: int = 30,
-) -> dict[str, Any]:
-    """Extract text using pypdf / builtin parser."""
-    from gwanbo_ocr.pdf.text import analyze_pdf_text
-
-    metadata = analyze_pdf_text(
-        pdf_path,
-        include_sample=True,
-        sample_chars=sample_chars,
-        max_pages=max_pages,
-        timeout_seconds=timeout_seconds,
-    )
-    sample = str(metadata.get("sample_text") or "")
-    return {
-        "status": str(metadata.get("status") or "unknown"),
-        "method": "pypdf.extract_text",
-        "text_extractable": bool(metadata.get("text_extractable")),
-        "pages": metadata.get("pages"),
-        "scanned_pages": metadata.get("scanned_pages"),
-        "text_chars": int(metadata.get("total_chars") or len(sample)),
-        "sample_text": sample[:sample_chars],
-        "error": metadata.get("error"),
-    }
-
-
-def extract_pdfplumber(
-    pdf_path: Path,
-    *,
-    max_pages: int | None = 1,
-    sample_chars: int = SAMPLE_CHARS_DEFAULT,
-    timeout_seconds: int = 30,
-) -> dict[str, Any]:
-    """Extract text using pdfplumber.page.extract_text()."""
-    plumber = _pdfplumber
-    if plumber is None:
-        return _skipped("pdfplumber is not installed", method="pdfplumber.extract_text")
-
-    def _run() -> dict[str, Any]:
-        with plumber.open(str(pdf_path)) as doc:
-            page_count = len(doc.pages)
-            pages_to_scan = page_count if max_pages is None else min(page_count, max_pages)
-            parts: list[str] = []
-            total_chars = 0
-            page_errors: list[dict[str, Any]] = []
-            for idx in range(pages_to_scan):
-                try:
-                    text = doc.pages[idx].extract_text() or ""
-                    text = _normalize(text)
-                    total_chars += len(text)
-                    if text and len(" ".join(parts)) < sample_chars:
-                        parts.append(text)
-                except Exception as exc:  # noqa: BLE001
-                    page_errors.append({"page_index": idx, "error": str(exc)})
-            result: dict[str, Any] = {
-                "status": "ok",
-                "method": "pdfplumber.extract_text",
-                "text_extractable": total_chars > 0,
-                "pages": page_count,
-                "scanned_pages": pages_to_scan,
-                "text_chars": total_chars,
-                "sample_text": " ".join(parts)[:sample_chars],
-                "error": None,
-            }
-            if page_errors:
-                result["page_errors"] = page_errors
-                result["page_error_count"] = len(page_errors)
-            return result
-
-    return _with_timeout(_run, timeout_seconds, method="pdfplumber.extract_text")
-
-
-def extract_markitdown(
-    pdf_path: Path,
-    *,
-    sample_chars: int = SAMPLE_CHARS_DEFAULT,
-    timeout_seconds: int = 30,
-) -> dict[str, Any]:
-    """Extract text using MarkItDown.convert()."""
-    MarkItDown = _MarkItDown
-    if MarkItDown is None:
-        return _skipped("markitdown is not installed", method="MarkItDown.convert")
-
-    def _run() -> dict[str, Any]:
-        converter = MarkItDown(enable_plugins=False)
-        converted = converter.convert(str(pdf_path))
-        text = _normalize(str(getattr(converted, "text_content", "") or ""))
-        return {
-            "status": "ok",
-            "method": "MarkItDown.convert",
-            "text_extractable": bool(text),
-            "text_chars": len(text),
-            "sample_text": text[:sample_chars],
-            "error": None,
-        }
-
-    return _with_timeout(_run, timeout_seconds, method="MarkItDown.convert")
-
-
-def extract_paddle_ocr(
-    pdf_path: Path,
-    *,
-    image_dir: Path,
-    max_pages: int | None = 1,
-    sample_chars: int = SAMPLE_CHARS_DEFAULT,
-    dpi: int = 200,
-    lang: str = "korean",
-    timeout_seconds: int = 60,
-) -> dict[str, Any]:
-    """Render pages with PyMuPDF and transcribe with PaddleOCR."""
-    try:
-        from gwanbo_ocr.runners.paddle import PaddleOcrRunner
-    except ImportError:
-        return _skipped("paddleocr is not installed", method="PaddleOCR")
-
-    rendered = _render_pages(pdf_path, image_dir=image_dir, max_pages=max_pages, dpi=dpi)
-    if rendered.get("status") != "ok":
-        return _error(str(rendered.get("error", "render failed")), method="PaddleOCR")
-
-    def _run() -> dict[str, Any]:
-        runner = PaddleOcrRunner(lang=lang)
-        parts: list[str] = []
-        total_chars = 0
-        page_results: list[dict[str, Any]] = []
-        for page in rendered["pages"]:
-            try:
-                result = runner.transcribe(Path(page["path"]))
-                text = _normalize(result.text)
-                total_chars += len(text)
-                if text and len(" ".join(parts)) < sample_chars:
-                    parts.append(text)
-                page_results.append(
-                    {"page_index": page["page_index"], "status": "ok", "text_chars": len(text)}
-                )
-            except Exception as exc:  # noqa: BLE001
-                page_results.append(
-                    {"page_index": page["page_index"], "status": "error", "error": str(exc)}
-                )
-        return {
-            "status": "ok",
-            "method": "PaddleOCR",
-            "text_extractable": total_chars > 0,
-            "pages": rendered["page_count"],
-            "scanned_pages": len(rendered["pages"]),
-            "text_chars": total_chars,
-            "sample_text": " ".join(parts)[:sample_chars],
-            "dpi": dpi,
-            "lang": lang,
-            "page_results": page_results,
-            "error": None,
-        }
-
-    return _with_timeout(_run, timeout_seconds, method="PaddleOCR")
-
-
-def extract_vlm_ocr(
-    pdf_path: Path,
-    *,
-    image_dir: Path,
-    runner: Any,
-    max_pages: int | None = 1,
-    sample_chars: int = SAMPLE_CHARS_DEFAULT,
-    dpi: int = 200,
-    timeout_seconds: int = 120,
-) -> dict[str, Any]:
-    """Render pages with PyMuPDF and transcribe with an OpenAI-compatible VLM."""
-    rendered = _render_pages(pdf_path, image_dir=image_dir, max_pages=max_pages, dpi=dpi)
-    if rendered.get("status") != "ok":
-        return _error(str(rendered.get("error", "render failed")), method="VLM-OCR")
-
-    method_label = f"VLM-OCR({getattr(runner, 'model', 'unknown')})"
-
-    def _run() -> dict[str, Any]:
-        parts: list[str] = []
-        total_chars = 0
-        page_results: list[dict[str, Any]] = []
-        for page in rendered["pages"]:
-            try:
-                result = runner.transcribe(Path(page["path"]), page_number=page["page_index"] + 1)
-                text = _normalize(result.text)
-                total_chars += len(text)
-                if text and len(" ".join(parts)) < sample_chars:
-                    parts.append(text)
-                page_results.append(
-                    {
-                        "page_index": page["page_index"],
-                        "status": "ok",
-                        "text_chars": len(text),
-                        "latency_ms": result.data.get("latency_ms"),
-                    }
-                )
-            except Exception as exc:  # noqa: BLE001
-                page_results.append(
-                    {"page_index": page["page_index"], "status": "error", "error": str(exc)}
-                )
-        return {
-            "status": "ok",
-            "method": method_label,
-            "text_extractable": total_chars > 0,
-            "pages": rendered["page_count"],
-            "scanned_pages": len(rendered["pages"]),
-            "text_chars": total_chars,
-            "sample_text": " ".join(parts)[:sample_chars],
-            "dpi": dpi,
-            "model": getattr(runner, "model", None),
-            "page_results": page_results,
-            "error": None,
-        }
-
-    return _with_timeout(_run, timeout_seconds, method=method_label)
-
-
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
+__all__ = [
+    "SAMPLE_CHARS_DEFAULT",
+    "METHOD_PREFERENCE",
+    "extract_markitdown",
+    "extract_native_text",
+    "extract_paddle_ocr",
+    "extract_pdfplumber",
+    "extract_vlm_ocr",
+    "analyze_pdf_peer_review",
+    "review_extraction_peers",
+    "score_against_metadata",
+    "decide_extraction",
+    "run_peer_review_manifest",
+    "aggregate_peer_scores",
+]
 
 
 def analyze_pdf_peer_review(
@@ -475,11 +234,6 @@ def decide_extraction(
         "needs_ocr": True,
         "reason": "no extraction method produced text",
     }
-
-
-# ---------------------------------------------------------------------------
-# Batch manifest processing
-# ---------------------------------------------------------------------------
 
 
 def run_peer_review_manifest(
@@ -707,45 +461,6 @@ def _bounded_process(
                 pending.add(executor.submit(_process_work_item, item))
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _render_pages(
-    pdf_path: Path,
-    *,
-    image_dir: Path,
-    max_pages: int | None,
-    dpi: int,
-) -> dict[str, Any]:
-    """Render PDF pages to PNG files and return page list."""
-    try:
-        from gwanbo_ocr.render import page_count, render_page_to_png_bytes
-    except ImportError:
-        return {"status": "error", "error": "PyMuPDF (pymupdf) is not installed"}
-
-    try:
-        image_dir.mkdir(parents=True, exist_ok=True)
-        total = page_count(pdf_path)
-        pages_to_render = total if max_pages is None else min(total, max_pages)
-        pages: list[dict[str, Any]] = []
-        for idx in range(pages_to_render):
-            png = render_page_to_png_bytes(pdf_path, page_index=idx, dpi=dpi)
-            img_path = image_dir / f"page_{idx + 1:03d}.png"
-            img_path.write_bytes(png)
-            pages.append({"page_index": idx, "path": str(img_path)})
-        return {"status": "ok", "page_count": total, "pages": pages}
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "error": str(exc)}
-
-
-def _make_vlm_runner(base_url: str, model: str | None, api_key: str) -> Any:
-    from gwanbo_ocr.runners.vllm import VllmChatRunner
-
-    return VllmChatRunner(model=model or "default", base_url=base_url, api_key=api_key)
-
-
 def _choose_best_method(peers: dict[str, dict[str, Any]]) -> str | None:
     candidates = [
         (name, int(peer.get("text_chars") or 0), METHOD_PREFERENCE.get(name, 0))
@@ -790,67 +505,3 @@ def _compact_index(report: dict[str, Any], sidecar_path: Path) -> dict[str, Any]
         "generated_at": report.get("generated_at"),
         "error": report.get("error"),
     }
-
-
-def _with_timeout(fn: Any, timeout_seconds: int, *, method: str) -> dict[str, Any]:
-    previous = None
-    if timeout_seconds > 0:
-        previous = signal.signal(signal.SIGALRM, _alarm_handler)
-        signal.alarm(timeout_seconds)
-    try:
-        result = fn()
-        return (
-            result
-            if isinstance(result, dict)
-            else _error("method returned non-dict", method=method)
-        )
-    except Exception as exc:  # noqa: BLE001
-        return _error(str(exc), method=method)
-    finally:
-        if timeout_seconds > 0:
-            signal.alarm(0)
-            if previous is not None:
-                signal.signal(signal.SIGALRM, previous)
-
-
-def _alarm_handler(_signum: int, _frame: Any) -> None:
-    raise TimeoutError("peer review extraction timed out")
-
-
-def _skipped(reason: str, *, method: str) -> dict[str, Any]:
-    return {
-        "status": "skipped",
-        "method": method,
-        "skip_reason": reason,
-        "text_extractable": False,
-        "text_chars": 0,
-        "sample_text": "",
-        "error": None,
-    }
-
-
-def _error(message: str, *, method: str) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "method": method,
-        "text_extractable": False,
-        "text_chars": 0,
-        "sample_text": "",
-        "error": message,
-    }
-
-
-def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _norm_for_sim(text: str) -> str:
-    return re.sub(r"\W+", "", text).lower()[:2000]
-
-
-def _scope(max_pages: int | None) -> str:
-    return "all_pages" if max_pages is None else f"first_{max_pages}_pages"
-
-
-def _iso_now() -> str:
-    return datetime.now().isoformat()

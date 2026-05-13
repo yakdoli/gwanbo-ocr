@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from gwanbo_ocr.cli import app as cli_app
-from gwanbo_ocr.peer_review import (
+from gwanbo_ocr.peers import (
     aggregate_peer_scores,
     analyze_pdf_peer_review,
     decide_extraction,
@@ -98,7 +98,7 @@ class TestExtractPdfplumber:
 
     def test_skipped_when_pdfplumber_missing(self, tmp_path: Path) -> None:
         pdf = _write_pdf(tmp_path / "doc.pdf")
-        with patch("gwanbo_ocr.peer_review._pdfplumber", None):
+        with patch("gwanbo_ocr.peers.pdfplumber._pdfplumber", None):
             result = extract_pdfplumber(pdf)
         assert result["status"] == "skipped"
         assert "pdfplumber is not installed" in result["skip_reason"]
@@ -107,7 +107,7 @@ class TestExtractPdfplumber:
 class TestExtractMarkitdown:
     def test_skipped_when_markitdown_missing(self, tmp_path: Path) -> None:
         pdf = _write_pdf(tmp_path / "doc.pdf")
-        with patch("gwanbo_ocr.peer_review._MarkItDown", None):
+        with patch("gwanbo_ocr.peers.markitdown._MarkItDown", None):
             result = extract_markitdown(pdf)
         assert result["status"] == "skipped"
 
@@ -124,7 +124,7 @@ class TestExtractMarkitdown:
             def convert(self, _path: str) -> FakeResult:
                 return FakeResult()
 
-        with patch("gwanbo_ocr.peer_review._MarkItDown", FakeMarkItDown):
+        with patch("gwanbo_ocr.peers.markitdown._MarkItDown", FakeMarkItDown):
             result = extract_markitdown(pdf, sample_chars=100)
 
         assert result["status"] == "ok"
@@ -141,7 +141,7 @@ class TestExtractMarkitdown:
             def convert(self, _path: str) -> None:
                 raise RuntimeError("conversion failed")
 
-        with patch("gwanbo_ocr.peer_review._MarkItDown", FailingMarkItDown):
+        with patch("gwanbo_ocr.peers.markitdown._MarkItDown", FailingMarkItDown):
             result = extract_markitdown(pdf)
 
         assert result["status"] == "error"
@@ -184,7 +184,7 @@ class TestExtractVlmOcr:
         pdf = tmp_path / "missing.pdf"
         runner = self._make_runner()
         with patch(
-            "gwanbo_ocr.peer_review._render_pages",
+            "gwanbo_ocr.peers.vlm._render_pages",
             return_value={"status": "error", "error": "render failed"},
         ):
             result = extract_vlm_ocr(pdf, image_dir=tmp_path / "img", runner=runner)
@@ -344,9 +344,9 @@ class TestAnalyzePdfPeerReview:
             }
 
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", fake_native),
+            patch("gwanbo_ocr.peers.extract_native_text", fake_native),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={
                     "status": "skipped",
                     "text_chars": 0,
@@ -357,7 +357,7 @@ class TestAnalyzePdfPeerReview:
                 },
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={
                     "status": "skipped",
                     "text_chars": 0,
@@ -396,9 +396,9 @@ class TestAnalyzePdfPeerReview:
         }
 
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=fake_peer),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={
                     "status": "skipped",
                     "text_chars": 0,
@@ -409,7 +409,7 @@ class TestAnalyzePdfPeerReview:
                 },
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={
                     "status": "skipped",
                     "text_chars": 0,
@@ -445,13 +445,13 @@ class TestAnalyzePdfPeerReview:
         }
 
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", return_value=failed),
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=failed),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={**failed, "status": "skipped", "skip_reason": "off"},
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={**failed, "status": "skipped", "skip_reason": "off"},
             ),
         ):
@@ -494,13 +494,13 @@ class TestRunPeerReviewManifest:
             "error": None,
         }
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=fake_peer),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
         ):
@@ -534,7 +534,7 @@ class TestRunPeerReviewManifest:
         sidecar.write_text("{}", encoding="utf-8")
 
         with patch(
-            "gwanbo_ocr.peer_review.extract_native_text",
+            "gwanbo_ocr.peers.extract_native_text",
             side_effect=AssertionError("should not be called"),
         ):
             summary = run_peer_review_manifest(
@@ -566,13 +566,13 @@ class TestRunPeerReviewManifest:
             "method": "t",
         }
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=fake_peer),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
         ):
@@ -621,13 +621,13 @@ class TestPeerCli:
             "error": None,
         }
         with (
-            patch("gwanbo_ocr.peer_review.extract_native_text", return_value=fake_peer),
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=fake_peer),
             patch(
-                "gwanbo_ocr.peer_review.extract_pdfplumber",
+                "gwanbo_ocr.peers.extract_pdfplumber",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
             patch(
-                "gwanbo_ocr.peer_review.extract_markitdown",
+                "gwanbo_ocr.peers.extract_markitdown",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
         ):
