@@ -18,10 +18,38 @@ ocr:
   paddleocr:
     language: korean
     use_angle_cls: true
+    runtime: docker_service
+    service_url: http://127.0.0.1:8082
     use_gpu: false
     det_model_dir:
     rec_model_dir:
     cls_model_dir:
+  paddleocr_vl:
+    pipeline_version: v1.5
+    vl_rec_model: PaddlePaddle/PaddleOCR-VL-1.5
+    runtime: docker_service
+    service_url: http://127.0.0.1:8082
+    vl_rec_backend: vllm-server
+    vl_rec_server_url: http://127.0.0.1:8118/v1
+    vl_rec_api_model_name: PaddlePaddle/PaddleOCR-VL-1.5
+    vl_rec_api_key_env:
+
+services:
+  markitdown_ocr_api:
+    provider: fastapi
+    base_url: http://127.0.0.1:8081
+    docker_service: markitdown-ocr-api
+    llm_base_url: http://127.0.0.1:8000/v1
+    llm_model: Qwen/Qwen3.6-35B-A3B-FP8
+  paddleocr_api:
+    provider: fastapi
+    base_url: http://127.0.0.1:8082
+    docker_service: paddleocr-api
+  paddleocr_vl_vllm:
+    provider: openai_compatible
+    base_url: http://127.0.0.1:8118/v1
+    model: PaddlePaddle/PaddleOCR-VL-1.5
+    docker_service: paddleocr-vl-vllm
 
 vision_language_models:
   qwen36_baseline:

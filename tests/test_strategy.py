@@ -206,7 +206,9 @@ def test_evaluate_clusters_merges_bench_and_peer_metrics(tmp_path: Path) -> None
 
     rows = [
         json.loads(line)
-        for line in (tmp_path / "eval" / "strategy_eval.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (tmp_path / "eval" / "strategy_eval.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     assert rows[0]["critical_token_f1"] == 0.93
     assert rows[0]["cer"] == 0.03
@@ -235,9 +237,18 @@ def test_evaluate_clusters_uses_bench_error_rate_for_recommendation(tmp_path: Pa
     bench_scores.write_text(
         "\n".join(
             [
-                json.dumps({"strategy": "ocr_vlm_structured", "status": "error", "metrics": {}}, ensure_ascii=False),
-                json.dumps({"strategy": "ocr_vlm_structured", "status": "error", "metrics": {}}, ensure_ascii=False),
-                json.dumps({"strategy": "ocr_vlm_structured", "status": "ok", "metrics": {}}, ensure_ascii=False),
+                json.dumps(
+                    {"strategy": "ocr_vlm_structured", "status": "error", "metrics": {}},
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {"strategy": "ocr_vlm_structured", "status": "error", "metrics": {}},
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {"strategy": "ocr_vlm_structured", "status": "ok", "metrics": {}},
+                    ensure_ascii=False,
+                ),
             ]
         )
         + "\n",
@@ -251,7 +262,9 @@ def test_evaluate_clusters_uses_bench_error_rate_for_recommendation(tmp_path: Pa
     )
     rows = [
         json.loads(line)
-        for line in (tmp_path / "eval" / "strategy_eval.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (tmp_path / "eval" / "strategy_eval.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     assert rows[0]["bench_error_rate"] == 0.6667
     assert rows[0]["error_rate"] == 0.6667

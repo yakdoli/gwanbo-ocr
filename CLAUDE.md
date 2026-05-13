@@ -17,29 +17,30 @@ pip install -e ".[dev]"
 # Add extras as needed:
 pip install -e ".[pdf]"          # PDF parsing (PyMuPDF, pdfplumber, pypdf, etc.)
 pip install -e ".[qwen]"         # OpenAI-compatible VLM client
-pip install -e ".[paddleocr]"    # PaddleOCR
+pip install -e ".[services]"     # FastAPI service wrappers
 pip install -e ".[pdf,qwen,dev]"
 ```
 
-vLLM, torch, transformers, and ROCm are **never** installed inside `.venv`. They run as an external Docker service.
+vLLM, torch, transformers, ROCm, PaddlePaddle, and PaddleOCR are **never** installed inside `.venv`. They run as external Docker services.
 
 ## Common Commands
 
 ```bash
 # Lint
-ruff check src tests
-ruff format --check src tests
+ruff check src tests scripts
+ruff format --check src tests scripts
 
 # Type check
 mypy src
+pyrefly check --summary=none
 
 # All tests
 pytest
 
-# Single test file
+# Focused test file(s)
 pytest tests/test_manifest.py
 pytest tests/pdf/test_pdf_session_b.py
-pytest tests/bench/test_bench.py -v
+pytest tests/bench/test_run.py tests/bench/test_score.py tests/bench/test_report.py -v
 
 # Single test by name
 pytest tests/bench/test_vllm_runner.py -k "test_vllm_runner_rejects_schema_echo"
@@ -51,7 +52,7 @@ scripts/clean_venv_vllm_residue.sh --venv .venv --apply
 
 ## CLI Pipeline (gwanbo-ocr)
 
-Full five-stage pipeline flow:
+Core OCR benchmark flow:
 
 ```bash
 gwanbo-ocr manifest build --peti-root /root/peti --output runs/<run_id>/pdf_manifest.jsonl
@@ -96,6 +97,8 @@ gwanbo-ocr bench score \
 
 5. **`bench run` / `bench score`** — Sends rendered page images to an OpenAI-compatible `/v1/chat/completions` endpoint. Results are `RunRecord` objects; scoring computes CER, WER, table cell F1, critical-token F1, and throughput metrics.
 
+6. **`pdf profile` / `strategy cluster` / `strategy evaluate`** — Combines manifest metadata with lightweight PDF features into `pdf-profile/v1`, builds deterministic layout clusters, and summarizes assigned parsing strategies for representative evaluation before large OCR runs.
+
 ### Key Source Files
 
 | File | Role |
@@ -110,7 +113,11 @@ gwanbo-ocr bench score \
 | `src/gwanbo_ocr/prompts.py` | OCR/VLM transcription prompt (JSON-only, anti-schema-echo) |
 | `src/gwanbo_ocr/runners/vllm.py` | `VllmChatRunner`: builds chat payload, attaches image as data URL |
 | `src/gwanbo_ocr/runners/paddle.py` | PaddleOCR adapter |
-| `src/gwanbo_ocr/bench.py` | Benchmark orchestration and throughput report |
+| `src/gwanbo_ocr/runners/preflight.py` | OpenAI-compatible endpoint/model preflight validation |
+| `src/gwanbo_ocr/bench/run.py` | Benchmark run orchestration and runner/model resolution |
+| `src/gwanbo_ocr/bench/score.py` | Benchmark scoring |
+| `src/gwanbo_ocr/bench/report.py` | Throughput report helpers |
+| `src/gwanbo_ocr/peers/` | Peer extraction/review orchestration and adapters |
 | `src/gwanbo_ocr/metrics.py` | CER/WER/token/table scoring helpers |
 | `src/gwanbo_ocr/sampling.py` | Deterministic stratified sampling (`DEFAULT_SAMPLE_SEED`) |
 | `src/gwanbo_ocr/docker_vllm.py` | MI300X/ROCm Docker launch config |

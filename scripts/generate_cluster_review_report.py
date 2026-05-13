@@ -14,16 +14,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-from collections import Counter, defaultdict
+from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
 import fitz
+from PIL import Image, ImageDraw, ImageFont
 
 
-def iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
+def iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         for line_no, raw in enumerate(f, 1):
             raw = raw.strip()
@@ -37,7 +37,7 @@ def iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
 
 def draw_bar_chart(
     title: str,
-    values: Dict[str, int],
+    values: dict[str, int],
     out_path: Path,
     rotate_x: int = 28,
     width: int = 1300,
@@ -55,7 +55,7 @@ def draw_bar_chart(
     right = width - 40
     bar_gap = 12
     max_bars = min(30, len(pairs))
-    values = pairs[:max_bars]
+    top_pairs = pairs[:max_bars]
     if max_bars == 0:
         return
 
@@ -69,7 +69,7 @@ def draw_bar_chart(
     draw.rectangle((left, top, right, bottom), outline="#222", width=1)
     draw.text((30, 20), title, fill="#111111", font=font)
 
-    for idx, (label, count) in enumerate(values):
+    for idx, (label, count) in enumerate(top_pairs):
         y1 = top + 20 + idx * (bar_height + bar_gap)
         y2 = y1 + bar_height
         x2 = left + int((count / max_value) * plot_w)
@@ -92,7 +92,7 @@ def draw_bar_chart(
 
 
 def draw_heatmap(
-    data: List[Tuple[str, str, str, int]],
+    data: list[tuple[str, str, str, int]],
     out_path: Path,
     title: str,
     top_years: int = 12,
@@ -102,8 +102,8 @@ def draw_heatmap(
     layouts = sorted({layout for _, _, layout, _ in data})[:top_layouts]
 
     # Rebuild matrix grouped by year/layout in data tuples.
-    matrix: Dict[Tuple[str, str], int] = {(year, layout): 0 for year in years for layout in layouts}
-    for category, year, layout, count in data:
+    matrix: dict[tuple[str, str], int] = {(year, layout): 0 for year in years for layout in layouts}
+    for _category, year, layout, count in data:
         if year in years and layout in layouts:
             matrix[(year, layout)] = matrix.get((year, layout), 0) + count
 
@@ -145,7 +145,7 @@ def make_thumbnail(
     pdf_path: Path,
     out_path: Path,
     page_number: int = 0,
-    max_size: Tuple[int, int] = (640, 900),
+    max_size: tuple[int, int] = (640, 900),
     quality: int = 95,
 ) -> str:
     try:
@@ -172,7 +172,13 @@ def make_thumbnail(
         font = ImageFont.load_default()
         draw.text((20, max_size[1] // 2 - 24), "thumbnail unavailable", fill="#555", font=font)
         draw.text((20, max_size[1] // 2), str(exc)[:90], fill="#777", font=font)
-        base.save(out_path, format="JPEG", quality=max(10, min(quality, 100)), optimize=True, progressive=True)
+        base.save(
+            out_path,
+            format="JPEG",
+            quality=max(10, min(quality, 100)),
+            optimize=True,
+            progressive=True,
+        )
         return "error"
 
 
@@ -194,7 +200,7 @@ def generate_report(args: argparse.Namespace) -> None:
     images_root.mkdir(parents=True, exist_ok=True)
     data_root.mkdir(parents=True, exist_ok=True)
 
-    profiles_by_key: Dict[str, Dict[str, Any]] = {}
+    profiles_by_key: dict[str, dict[str, Any]] = {}
     for profile in iter_jsonl(profiles_path):
         key = safe(profile.get("pdf_key"))
         if key:
@@ -202,18 +208,20 @@ def generate_report(args: argparse.Namespace) -> None:
 
     strategy_cluster_counts: Counter[str] = Counter()
     strategy_pdf_counts: Counter[str] = Counter()
-    category_year_layout_counts: Counter[Tuple[str, str, str]] = Counter()
+    category_year_layout_counts: Counter[tuple[str, str, str]] = Counter()
     year_counts: Counter[str] = Counter()
     layout_counts: Counter[str] = Counter()
     theme_counts: Counter[str] = Counter()
     category_counts: Counter[str] = Counter()
-    clusters: List[Dict[str, Any]] = []
+    clusters: list[dict[str, Any]] = []
 
     for row in iter_jsonl(clusters_path):
         strategy = safe(row.get("assigned_strategy") or "unknown")
         strategy_cluster_counts[strategy] += 1
         strategy_pdf_counts[strategy] += int(row.get("count", 0))
-        feature = row.get("feature_signature") if isinstance(row.get("feature_signature"), dict) else {}
+        feature = (
+            row.get("feature_signature") if isinstance(row.get("feature_signature"), dict) else {}
+        )
         category = safe(feature.get("category", row.get("dominant_category", "미지정")))
         year = safe(feature.get("year", row.get("year", "미지정")))
         layout = safe(feature.get("layout_class", "미지정"))
@@ -248,7 +256,7 @@ def generate_report(args: argparse.Namespace) -> None:
 
     # Generate thumbnails for representative samples.
     cluster_cards = []
-    for rank, cluster in enumerate(top_clusters, 1):
+    for _rank, cluster in enumerate(top_clusters, 1):
         rep_key = safe((cluster["sample_pdf_keys"] or [None])[0])
         if rep_key and rep_key in profiles_by_key:
             profile = profiles_by_key[rep_key]
@@ -277,13 +285,18 @@ def generate_report(args: argparse.Namespace) -> None:
         )
 
     strategy_counts = {k: int(v) for k, v in strategy_cluster_counts.items() if k}
-    year_counts = dict(sorted(year_counts.items(), key=lambda kv: kv[0]))
-    theme_counts = dict(sorted(theme_counts.items(), key=lambda kv: kv[1], reverse=True))
-    category_counts = dict(sorted(category_counts.items(), key=lambda kv: kv[1], reverse=True))
-    layout_counts = dict(sorted(layout_counts.items(), key=lambda kv: kv[1], reverse=True))
+    year_counts_by_name = dict(sorted(year_counts.items(), key=lambda kv: kv[0]))
+    theme_counts_by_name = dict(sorted(theme_counts.items(), key=lambda kv: kv[1], reverse=True))
+    category_counts_by_name = dict(
+        sorted(category_counts.items(), key=lambda kv: kv[1], reverse=True)
+    )
+    layout_counts_by_name = dict(sorted(layout_counts.items(), key=lambda kv: kv[1], reverse=True))
 
     cat_year_layout_top = sorted(
-        ((cat, year, layout, count) for (cat, year, layout), count in category_year_layout_counts.items()),
+        (
+            (cat, year, layout, count)
+            for (cat, year, layout), count in category_year_layout_counts.items()
+        ),
         key=lambda item: item[3],
         reverse=True,
     )
@@ -298,7 +311,7 @@ def generate_report(args: argparse.Namespace) -> None:
         top_layouts=min(8, len({layout for _, _, layout, _ in heatmap_data} or {1})),
     )
     draw_bar_chart("전략별 클러스터 수", strategy_counts, images_root / "strategy_distribution.png")
-    draw_bar_chart("연도별 클러스터 수", year_counts, images_root / "year_distribution.png")
+    draw_bar_chart("연도별 클러스터 수", year_counts_by_name, images_root / "year_distribution.png")
 
     report = {
         "status": "ok",
@@ -306,13 +319,13 @@ def generate_report(args: argparse.Namespace) -> None:
         "profiles_count": len(profiles_by_key),
         "strategy_cluster_counts": strategy_counts,
         "strategy_pdf_counts": {k: int(v) for k, v in strategy_pdf_counts.items()},
-        "year_counts": year_counts,
-        "layout_counts": layout_counts,
-        "theme_counts": theme_counts,
-        "category_counts": category_counts,
+        "year_counts": year_counts_by_name,
+        "layout_counts": layout_counts_by_name,
+        "theme_counts": theme_counts_by_name,
+        "category_counts": category_counts_by_name,
         "category_year_layout_top": [
-            {"category": c, "year": y, "layout_class": l, "clusters": n}
-            for c, y, l, n in cat_year_layout_top
+            {"category": category, "year": year, "layout_class": layout, "clusters": count}
+            for category, year, layout, count in cat_year_layout_top
         ],
         "top_clusters": cluster_cards,
         "cluster_source": str(clusters_path),
@@ -328,13 +341,13 @@ def generate_report(args: argparse.Namespace) -> None:
     cluster_cards_html = "".join(
         f"""
           <article class=\"cluster-card\">
-            <img src=\"{item['thumbnail']}\" alt=\"{item['cluster_id']}\" />
+            <img src=\"{item["thumbnail"]}\" alt=\"{item["cluster_id"]}\" />
             <div class=\"cluster-meta\">
-              <h3>{item['dominant_category']} ({item['year']})</h3>
-              <p>클러스터: <strong>{item['cluster_id']}</strong></p>
-              <p>레이아웃: <strong>{item['layout_class']}</strong> | 전략: <strong>{item['strategy']}</strong></p>
-              <p>샘플 수: <strong>{item['count']}</strong>개 | theme: {item['theme']}</p>
-              <p>표본 PDF: <code>{item['sample_pdf_key'] or '-'}</code></p>
+              <h3>{item["dominant_category"]} ({item["year"]})</h3>
+              <p>클러스터: <strong>{item["cluster_id"]}</strong></p>
+              <p>레이아웃: <strong>{item["layout_class"]}</strong> | 전략: <strong>{item["strategy"]}</strong></p>
+              <p>샘플 수: <strong>{item["count"]}</strong>개 | theme: {item["theme"]}</p>
+              <p>표본 PDF: <code>{item["sample_pdf_key"] or "-"}</code></p>
             </div>
           </article>
         """
@@ -434,11 +447,17 @@ def generate_report(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate static reviewer HTML for cluster statistics.")
+    parser = argparse.ArgumentParser(
+        description="Generate static reviewer HTML for cluster statistics."
+    )
     parser.add_argument("--clusters", required=True, help="cluster_manifest.jsonl path")
     parser.add_argument("--profiles", required=True, help="pdf-profile manifest.jsonl path")
-    parser.add_argument("--output", default="/tmp/gwanbo-ocr-cluster-review", help="output directory")
-    parser.add_argument("--top-clusters", type=int, default=80, help="number of clusters to render in preview")
+    parser.add_argument(
+        "--output", default="/tmp/gwanbo-ocr-cluster-review", help="output directory"
+    )
+    parser.add_argument(
+        "--top-clusters", type=int, default=80, help="number of clusters to render in preview"
+    )
     parser.add_argument(
         "--top-category-year-layout",
         type=int,
@@ -446,7 +465,9 @@ def parse_args() -> argparse.Namespace:
         help="number of category/year/layout rows to list in table",
     )
     parser.add_argument("--thumbnail-max-width", type=int, default=960, help="max thumbnail width")
-    parser.add_argument("--thumbnail-max-height", type=int, default=1280, help="max thumbnail height")
+    parser.add_argument(
+        "--thumbnail-max-height", type=int, default=1280, help="max thumbnail height"
+    )
     parser.add_argument(
         "--thumbnail-jpeg-quality",
         type=int,

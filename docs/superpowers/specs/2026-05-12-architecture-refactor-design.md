@@ -3,6 +3,8 @@
 **Date:** 2026-05-12  
 **Scope:** Full architecture cleanup — bench/ package, peers/ package, CLI thinning, test restructure
 
+> **Status (2026-05-13):** Historical design record. The main architecture refactor described here has already been implemented in recent commits; retained legacy module/test references below are context, not current instructions.
+
 ---
 
 ## Context

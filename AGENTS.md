@@ -6,7 +6,7 @@ Compact guidance for OpenCode sessions working in this repo.
 
 - `/root/peti/artifacts` is read-only input. Never write, mutate, or delete anything under it.
 - Pipeline outputs belong under `runs/<run_id>/` or `/tmp/gwanbo-ocr-*`; `runs/` is gitignored.
-- Do not install vLLM, torch, transformers, ROCm/CUDA runtimes in `.venv`; vLLM runs as an external Docker/OpenAI-compatible service.
+- Do not install vLLM, torch, transformers, ROCm/CUDA, PaddlePaddle, or PaddleOCR runtimes in `.venv`; heavy OCR/VLM runtimes run as external Docker/OpenAI-compatible services.
 - Python `>=3.12` is enforced by `pyproject.toml`.
 - Ignore `.claude/worktrees/`, `.venv/`, caches, and `.opencode/node_modules/` when searching; they contain duplicate snapshots or dependencies.
 
@@ -18,7 +18,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -m pip install -e ".[pdf,qwen,dev]"   # PDF + VLM workflows
-python -m pip install -e ".[paddleocr]"      # PaddleOCR workflows
+python -m pip install -e ".[services]"       # FastAPI service wrappers
 ```
 
 If vLLM/Torch residue was accidentally installed into `.venv`, dry-run before applying cleanup:
@@ -35,9 +35,10 @@ There is no Makefile, pre-commit config, or GitHub Actions workflow; use `pyproj
 Run in this order:
 
 ```bash
-ruff check src tests
-ruff format --check src tests
+ruff check src tests scripts
+ruff format --check src tests scripts
 .venv/bin/mypy src
+.venv/bin/pyrefly check --summary=none
 .venv/bin/pytest -ra --tb=short
 ```
 
@@ -50,6 +51,7 @@ Focused checks:
 ```
 
 Ruff config: line length 100, py312, rules `E,F,I,UP,B`; project ignores `B008` and `E501`; tests ignore `E402` for local `sys.path` insertion.
+Pyrefly config lives in `pyproject.toml` and checks `src`, `tests`, and `scripts` with import roots `.` and `src`.
 
 ## Test Conventions
 
@@ -96,6 +98,8 @@ gwanbo-ocr bench score --run runs/<run_id>/bench/qwen36_baseline --output runs/<
 - `src/gwanbo_ocr/pdf/profile.py`: lightweight `pdf-profile/v1` rows for clustering.
 - `src/gwanbo_ocr/render.py`: PyMuPDF PDF-to-PNG rendering.
 - `src/gwanbo_ocr/strategy.py`: deterministic layout clustering and strategy evaluation.
-- `src/gwanbo_ocr/bench.py`: benchmark run and score orchestration.
+- `src/gwanbo_ocr/bench/{run,score,report}.py`: benchmark run, score, and report modules.
+- `src/gwanbo_ocr/peers/`: peer extraction and review orchestration.
 - `src/gwanbo_ocr/prompts.py`: JSON-only OCR/VLM transcription prompt and schema-echo guard.
+- `src/gwanbo_ocr/runners/preflight.py`: OpenAI-compatible endpoint/model preflight validation.
 - `src/gwanbo_ocr/docker_vllm.py`: MI300X/ROCm Docker command builder.

@@ -7,14 +7,17 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from gwanbo_ocr.peers import (
     extract_markitdown,
+    extract_markitdown_ocr_llm,
     extract_native_text,
+    extract_paddle_ocr_vl,
     extract_pdfplumber,
     extract_vlm_ocr,
 )
+from gwanbo_ocr.runners.base import TranscriptionResult
 
 # Minimal valid PDF bytes with one text page.
 TEXT_PDF = b"""%PDF-1.4
@@ -136,6 +139,44 @@ class TestExtractMarkitdown:
         assert result["status"] == "error"
         assert "conversion failed" in result["error"]
 
+    def test_ocr_llm_uses_plugin_and_openai_client(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+        calls: dict[str, Any] = {}
+
+        class FakeResult:
+            text_content = "관보 OCR LLM 결과"
+
+        class FakeClient:
+            def __init__(self, **kwargs: Any) -> None:
+                calls["client"] = kwargs
+
+        class FakeMarkItDown:
+            def __init__(self, **kwargs: Any) -> None:
+                calls["markitdown"] = kwargs
+
+            def convert(self, _path: str) -> FakeResult:
+                return FakeResult()
+
+        with (
+            patch("gwanbo_ocr.peers.markitdown._OpenAI", FakeClient),
+            patch("gwanbo_ocr.peers.markitdown._MarkItDown", FakeMarkItDown),
+        ):
+            result = extract_markitdown_ocr_llm(
+                pdf,
+                llm_base_url="http://127.0.0.1:8000/v1",
+                llm_model="Qwen/Qwen3.6-35B-A3B-FP8",
+                llm_api_key="dummy",
+                llm_prompt="Extract text.",
+            )
+
+        assert result["status"] == "ok"
+        assert result["method"] == "MarkItDown.ocr_llm"
+        assert result["text_chars"] > 0
+        assert calls["client"] == {"base_url": "http://127.0.0.1:8000/v1", "api_key": "dummy"}
+        assert calls["markitdown"]["enable_plugins"] is True
+        assert calls["markitdown"]["llm_model"] == "Qwen/Qwen3.6-35B-A3B-FP8"
+        assert calls["markitdown"]["llm_prompt"] == "Extract text."
+
 
 class TestExtractVlmOcr:
     def _make_runner(self, text: str = "VLM transcribed text") -> Any:
@@ -180,3 +221,103 @@ class TestExtractVlmOcr:
         ):
             result = extract_vlm_ocr(pdf, image_dir=tmp_path / "img", runner=runner)
         assert result["status"] == "error"
+
+
+class TestExtractPaddleOcrVl:
+    def test_renders_and_transcribes_with_paddle_vl(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class FakePaddleOcrVlRunner:
+            kwargs: dict[str, Any] = {}
+
+            def __init__(self, **kwargs: Any) -> None:
+                type(self).kwargs = kwargs
+
+            def transcribe(self, image: Path) -> TranscriptionResult:
+                assert image.name == "page_001.png"
+                return TranscriptionResult.from_payload(
+                    {"text": "관보 PaddleOCR-VL 결과"}, backend="paddleocr_vl"
+                )
+
+        rendered = {
+            "status": "ok",
+            "page_count": 1,
+            "pages": [{"page_index": 0, "path": str(tmp_path / "page_001.png")}],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch("gwanbo_ocr.runners.paddle.PaddleOcrVlRunner", FakePaddleOcrVlRunner),
+        ):
+            result = extract_paddle_ocr_vl(
+                pdf,
+                image_dir=tmp_path / "images",
+                vl_rec_backend="vllm-server",
+                vl_rec_server_url="http://127.0.0.1:8000/v1",
+                vl_rec_api_model_name="PaddlePaddle/PaddleOCR-VL-1.5",
+            )
+
+        assert result["status"] == "ok"
+        assert result["method"] == "PaddleOCR-VL"
+        assert result["text_chars"] > 0
+        assert "관보" in result["sample_text"]
+        assert result["vl_rec_backend"] == "vllm-server"
+        assert result["vl_rec_api_model_name"] == "PaddlePaddle/PaddleOCR-VL-1.5"
+
+    def test_reports_error_when_all_paddle_vl_pages_fail(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class FailingPaddleOcrVlRunner:
+            def __init__(self, **_kwargs: Any) -> None:
+                pass
+
+            def transcribe(self, _image: Path) -> TranscriptionResult:
+                raise RuntimeError("service down")
+
+        rendered = {
+            "status": "ok",
+            "page_count": 1,
+            "pages": [{"page_index": 0, "path": str(tmp_path / "page_001.png")}],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch("gwanbo_ocr.runners.paddle.PaddleOcrVlRunner", FailingPaddleOcrVlRunner),
+        ):
+            result = extract_paddle_ocr_vl(pdf, image_dir=tmp_path / "images")
+
+        assert result["status"] == "error"
+        assert result["text_extractable"] is False
+        assert "all PaddleOCR-VL pages failed" in result["error"]
+
+    def test_reports_partial_when_some_paddle_vl_pages_fail(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class PartlyFailingPaddleOcrVlRunner:
+            def __init__(self, **_kwargs: Any) -> None:
+                self.calls = 0
+
+            def transcribe(self, _image: Path) -> TranscriptionResult:
+                self.calls += 1
+                if self.calls == 2:
+                    raise RuntimeError("page failed")
+                return TranscriptionResult.from_payload({"text": "관보 일부 결과"})
+
+        rendered = {
+            "status": "ok",
+            "page_count": 2,
+            "pages": [
+                {"page_index": 0, "path": str(tmp_path / "page_001.png")},
+                {"page_index": 1, "path": str(tmp_path / "page_002.png")},
+            ],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch(
+                "gwanbo_ocr.runners.paddle.PaddleOcrVlRunner",
+                PartlyFailingPaddleOcrVlRunner,
+            ),
+        ):
+            result = extract_paddle_ocr_vl(pdf, image_dir=tmp_path / "images")
+
+        assert result["status"] == "partial"
+        assert result["text_extractable"] is True
+        assert result["text_chars"] > 0

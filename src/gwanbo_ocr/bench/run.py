@@ -251,6 +251,7 @@ def _load_suite_tasks(suite: str) -> list[dict[str, Any]]:
         return []
     if path.suffix == ".jsonl":
         from .report import load_records_jsonl
+
         return load_records_jsonl(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, Mapping):

@@ -1,13 +1,13 @@
 ---
 name: ruff-check
-description: Run ruff lint and format checks on gwanbo-ocr source and tests
+description: Run ruff lint and format checks on gwanbo-ocr source, tests, and scripts
 license: MIT
 compatibility: opencode
 ---
 
 ## What I do
-- Run `ruff check src tests` for linting
-- Run `ruff format --check src tests` for format validation
+- Run `ruff check src tests scripts` for linting
+- Run `ruff format --check src tests scripts` for format validation
 - Report all violations with file paths and line numbers
 
 ## When to use me

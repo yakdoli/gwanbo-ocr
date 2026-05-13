@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from gwanbo_ocr.cli import app as cli_app
 from gwanbo_ocr.peers import (
@@ -189,6 +189,51 @@ class TestAnalyzePdfPeerReview:
 
         assert report["status"] == "error"
 
+    def test_can_run_paddle_vl_without_classic_paddle(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+        skipped = {
+            "status": "skipped",
+            "text_chars": 0,
+            "skip_reason": "off",
+            "text_extractable": False,
+            "sample_text": "",
+            "error": None,
+        }
+        paddle_vl_peer = {
+            "status": "ok",
+            "method": "PaddleOCR-VL",
+            "text_extractable": True,
+            "text_chars": 12,
+            "sample_text": "관보 결과",
+            "error": None,
+        }
+
+        with (
+            patch("gwanbo_ocr.peers.extract_native_text", return_value=skipped),
+            patch("gwanbo_ocr.peers.extract_pdfplumber", return_value=skipped),
+            patch("gwanbo_ocr.peers.extract_markitdown", return_value=skipped),
+            patch("gwanbo_ocr.peers.extract_paddle_ocr_vl", return_value=paddle_vl_peer),
+            patch(
+                "gwanbo_ocr.peers.extract_paddle_ocr",
+                side_effect=AssertionError("classic PaddleOCR should not run"),
+            ),
+        ):
+            report = analyze_pdf_peer_review(
+                pdf,
+                image_dir=tmp_path / "images",
+                run_native_text=True,
+                run_pdfplumber=False,
+                run_markitdown=False,
+                run_paddle=False,
+                run_paddle_vl=True,
+                paddle_vl_server_url="http://127.0.0.1:8000/v1",
+                paddle_vl_model="PaddlePaddle/PaddleOCR-VL-1.5",
+            )
+
+        assert "paddle_ocr_vl" in report["peers"]
+        assert "paddle_ocr" not in report["peers"]
+        assert report["decision"]["preferred_text_source"] == "paddle_ocr_vl"
+
 
 # ---------------------------------------------------------------------------
 # Batch manifest processing
@@ -226,6 +271,7 @@ class TestRunPeerReviewManifest:
                 "gwanbo_ocr.peers.extract_markitdown",
                 return_value={**fake_peer, "status": "skipped", "skip_reason": "off"},
             ),
+            patch("gwanbo_ocr.peers.extract_paddle_ocr_vl", return_value=fake_peer),
         ):
             summary = run_peer_review_manifest(
                 manifest_path=manifest,
@@ -234,16 +280,24 @@ class TestRunPeerReviewManifest:
                 run_pdfplumber=False,
                 run_markitdown=False,
                 run_paddle=False,
+                run_paddle_vl=True,
+                paddle_vl_server_url="http://127.0.0.1:8000/v1",
+                paddle_vl_model="PaddlePaddle/PaddleOCR-VL-1.5",
                 workers=1,
             )
 
         assert summary["processed"] == 1
         assert summary["total"] == 1
+        assert summary["settings"]["run_paddle_vl"] is True
+        assert summary["settings"]["paddle_vl_model"] == "PaddlePaddle/PaddleOCR-VL-1.5"
         assert (output_dir / "metadata.json").exists()
         assert (output_dir / "summary.json").exists()
+        assert (output_dir / "samples" / "item-001" / "source.json").exists()
+        assert (output_dir / "samples" / "item-001" / "peer_samples.md").exists()
 
         index = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
         assert "item-001" in index
+        assert index["item-001"]["sample_artifact_dir"].endswith("samples/item-001")
 
     def test_skips_existing_sidecars_when_not_forced(self, tmp_path: Path) -> None:
         pdf = _write_pdf(tmp_path / "doc.pdf")
@@ -322,6 +376,51 @@ def test_peer_run_help() -> None:
     assert result.exit_code == 0
     assert "--manifest" in result.output
     assert "--vlm-base-url" in result.output
+    assert "--paddle-vl" in result.output
+    assert "MarkItDown OCR" in result.output
+
+
+def test_peer_run_forwards_service_peer_options(tmp_path: Path, monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_peer_review_manifest(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok"}
+
+    import gwanbo_ocr.peers as peers
+
+    monkeypatch.setattr(peers, "run_peer_review_manifest", fake_run_peer_review_manifest)
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "peer",
+            "run",
+            "--manifest",
+            str(tmp_path / "manifest.jsonl"),
+            "--output",
+            str(tmp_path / "out"),
+            "--markitdown-ocr-llm",
+            "--markitdown-service-url",
+            "http://127.0.0.1:8081",
+            "--markitdown-llm-base-url",
+            "http://127.0.0.1:8000/v1",
+            "--markitdown-llm-model",
+            "Qwen/Qwen3.6-35B-A3B-FP8",
+            "--paddle-service-url",
+            "http://127.0.0.1:8082",
+            "--paddle-vl-service-url",
+            "http://127.0.0.1:8082",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["run_markitdown_ocr_llm"] is True
+    assert captured["markitdown_service_url"] == "http://127.0.0.1:8081"
+    assert captured["markitdown_llm_base_url"] == "http://127.0.0.1:8000/v1"
+    assert captured["markitdown_llm_model"] == "Qwen/Qwen3.6-35B-A3B-FP8"
+    assert captured["paddle_service_url"] == "http://127.0.0.1:8082"
+    assert captured["paddle_vl_service_url"] == "http://127.0.0.1:8082"
 
 
 def test_peer_score_help() -> None:

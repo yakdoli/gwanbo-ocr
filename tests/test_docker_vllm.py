@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,7 +28,7 @@ class TestVllmDockerConfig:
 
 
 class TestBuildVllmDockerCommand:
-    def _cmd(self, **kwargs: object) -> list[str]:
+    def _cmd(self, **kwargs: Any) -> list[str]:
         return build_vllm_docker_command(model="test-model", **kwargs)
 
     def test_starts_with_docker_run(self) -> None:

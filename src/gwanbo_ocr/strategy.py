@@ -522,6 +522,19 @@ def run_pipeline(
     preflight_timeout_s: float = 5.0,
     run_peer: bool = True,
     run_paddle: bool = False,
+    run_paddle_vl: bool = False,
+    run_markitdown_ocr_llm: bool = False,
+    markitdown_service_url: str | None = None,
+    markitdown_llm_base_url: str | None = None,
+    markitdown_llm_model: str | None = None,
+    markitdown_llm_api_key: str = "dummy",
+    markitdown_llm_prompt: str | None = None,
+    paddle_service_url: str | None = None,
+    paddle_vl_service_url: str | None = None,
+    paddle_vl_backend: str | None = None,
+    paddle_vl_server_url: str | None = None,
+    paddle_vl_model: str | None = None,
+    paddle_vl_api_key: str | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Run the end-to-end strategy pipeline: profile → cluster → render → bench → evaluate."""
@@ -540,6 +553,7 @@ def run_pipeline(
     bench_report_dir = output / "reports" / runner
     peer_dir = output / "peer_review"
     peer_report_dir = output / "reports" / "peer"
+    samples_dir = output / "samples"
     strategy_eval_dir = output / "strategy_eval"
 
     profile_summary = profile_manifest(
@@ -589,6 +603,20 @@ def run_pipeline(
             manifest_path=manifest,
             output_dir=peer_dir,
             run_paddle=run_paddle,
+            run_paddle_vl=run_paddle_vl,
+            run_markitdown_ocr_llm=run_markitdown_ocr_llm,
+            markitdown_service_url=markitdown_service_url,
+            markitdown_llm_base_url=markitdown_llm_base_url,
+            markitdown_llm_model=markitdown_llm_model,
+            markitdown_llm_api_key=markitdown_llm_api_key,
+            markitdown_llm_prompt=markitdown_llm_prompt,
+            paddle_service_url=paddle_service_url,
+            paddle_vl_service_url=paddle_vl_service_url,
+            paddle_vl_backend=paddle_vl_backend,
+            paddle_vl_server_url=paddle_vl_server_url,
+            paddle_vl_model=paddle_vl_model,
+            paddle_vl_api_key=paddle_vl_api_key,
+            sample_artifacts_dir=samples_dir,
             max_pages=None if render_max_pages == 0 else render_max_pages,
             workers=workers,
             limit=limit,
@@ -634,6 +662,7 @@ def run_pipeline(
         "route_metrics": route_metrics,
         "peer_run": peer_run_summary,
         "peer_score": peer_score_summary,
+        "samples": {"enabled": bool(run_peer), "dir": str(samples_dir)},
         "strategy_eval": eval_summary,
     }
     write_json_atomic(output / "pipeline_summary.json", pipeline_summary)

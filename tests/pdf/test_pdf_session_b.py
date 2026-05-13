@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -77,6 +78,11 @@ class FakePage:
 
 
 class PdfSessionBTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self._pdf_dir = Path(self._tmpdir.name)
+
     def test_text_pdf_extracts_without_required_optional_dependency(self) -> None:
         pdf_path = self._write_pdf("text.pdf", TEXT_PDF)
 
@@ -174,12 +180,9 @@ class PdfSessionBTests(unittest.TestCase):
         self.assertTrue(result["text_extractable"])
 
     def _write_pdf(self, name: str, payload: bytes) -> Path:
-        path = Path(self._testMethodName)
-        path.mkdir(exist_ok=True)
-        pdf_path = path / name
+        pdf_path = self._pdf_dir / name
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_bytes(payload)
-        self.addCleanup(lambda: pdf_path.unlink(missing_ok=True))
-        self.addCleanup(lambda: path.rmdir() if path.exists() and not any(path.iterdir()) else None)
         return pdf_path
 
 

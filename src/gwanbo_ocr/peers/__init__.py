@@ -6,14 +6,18 @@ from pathlib import Path
 from typing import Any
 
 from ._helpers import SAMPLE_CHARS_DEFAULT, _iso_now, _make_vlm_runner, _norm_for_sim, _scope
-from .markitdown import extract_markitdown
+from .markitdown import extract_markitdown, extract_markitdown_ocr_llm
 from .native import extract_native_text
-from .paddle import extract_paddle_ocr
+from .paddle import extract_paddle_ocr, extract_paddle_ocr_vl
 from .pdfplumber import extract_pdfplumber
 from .vlm import extract_vlm_ocr
 
+PADDLE_OCR_VL_MODEL = "PaddlePaddle/PaddleOCR-VL-1.5"
+
 METHOD_PREFERENCE = {
     "vlm_ocr": 5,
+    "paddle_ocr_vl": 5,
+    "markitdown_ocr_llm": 4,
     "paddle_ocr": 4,
     "pdfplumber": 3,
     "markitdown": 2,
@@ -23,9 +27,12 @@ METHOD_PREFERENCE = {
 __all__ = [
     "SAMPLE_CHARS_DEFAULT",
     "METHOD_PREFERENCE",
+    "PADDLE_OCR_VL_MODEL",
     "extract_markitdown",
+    "extract_markitdown_ocr_llm",
     "extract_native_text",
     "extract_paddle_ocr",
+    "extract_paddle_ocr_vl",
     "extract_pdfplumber",
     "extract_vlm_ocr",
     "analyze_pdf_peer_review",
@@ -47,10 +54,23 @@ def analyze_pdf_peer_review(
     dpi: int = 200,
     timeout_seconds: int = 60,
     run_paddle: bool = False,
+    run_paddle_vl: bool = False,
     run_markitdown: bool = True,
+    run_markitdown_ocr_llm: bool = False,
     run_pdfplumber: bool = True,
     run_native_text: bool = True,
     ocr_lang: str = "korean",
+    paddle_service_url: str | None = None,
+    paddle_vl_service_url: str | None = None,
+    paddle_vl_backend: str | None = None,
+    paddle_vl_server_url: str | None = None,
+    paddle_vl_model: str | None = None,
+    paddle_vl_api_key: str | None = None,
+    markitdown_service_url: str | None = None,
+    markitdown_llm_base_url: str | None = None,
+    markitdown_llm_model: str | None = None,
+    markitdown_llm_api_key: str = "dummy",
+    markitdown_llm_prompt: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run all enabled peers and produce a complete peer-review report."""
@@ -86,6 +106,17 @@ def analyze_pdf_peer_review(
         peers["markitdown"] = extract_markitdown(
             pdf_path, sample_chars=sample_chars, timeout_seconds=timeout_seconds
         )
+    if run_markitdown_ocr_llm:
+        peers["markitdown_ocr_llm"] = extract_markitdown_ocr_llm(
+            pdf_path,
+            sample_chars=sample_chars,
+            timeout_seconds=timeout_seconds * 2,
+            service_url=markitdown_service_url,
+            llm_base_url=markitdown_llm_base_url,
+            llm_model=markitdown_llm_model,
+            llm_api_key=markitdown_llm_api_key,
+            llm_prompt=markitdown_llm_prompt,
+        )
     if run_paddle:
         peers["paddle_ocr"] = extract_paddle_ocr(
             pdf_path,
@@ -94,7 +125,25 @@ def analyze_pdf_peer_review(
             sample_chars=sample_chars,
             dpi=dpi,
             lang=ocr_lang,
+            service_url=paddle_service_url,
             timeout_seconds=timeout_seconds * 2,
+        )
+    if run_paddle_vl:
+        effective_paddle_vl_model = paddle_vl_model or (
+            PADDLE_OCR_VL_MODEL if paddle_vl_server_url else None
+        )
+        peers["paddle_ocr_vl"] = extract_paddle_ocr_vl(
+            pdf_path,
+            image_dir=image_dir / "paddle_vl",
+            max_pages=max_pages,
+            sample_chars=sample_chars,
+            dpi=dpi,
+            vl_rec_backend=paddle_vl_backend or ("vllm-server" if paddle_vl_server_url else None),
+            vl_rec_server_url=paddle_vl_server_url,
+            vl_rec_api_model_name=effective_paddle_vl_model,
+            vl_rec_api_key=paddle_vl_api_key,
+            service_url=paddle_vl_service_url,
+            timeout_seconds=timeout_seconds * 3,
         )
     if vlm_runner is not None:
         peers["vlm_ocr"] = extract_vlm_ocr(
@@ -144,7 +193,7 @@ def review_extraction_peers(peers: dict[str, dict[str, Any]]) -> dict[str, Any]:
     if best:
         best_chars = int(peers[best].get("text_chars") or 0)
         for name, peer in peers.items():
-            if name == best or peer.get("status") != "ok":
+            if name == best or not _peer_has_usable_text(peer):
                 continue
             chars = int(peer.get("text_chars") or 0)
             if best_chars and chars < best_chars * 0.3:
@@ -173,7 +222,7 @@ def score_against_metadata(
 
     scores: dict[str, Any] = {"reference_tokens": sorted(reference_tokens)}
     for name, peer in peers.items():
-        if peer.get("status") != "ok":
+        if not _peer_has_usable_text(peer):
             scores[name] = {"status": peer.get("status"), "critical_token_f1": None}
             continue
         sample = str(peer.get("sample_text") or "")
@@ -203,16 +252,10 @@ def decide_extraction(
     """Recommend the best extraction strategy."""
     best_method = review.get("best_text_method")
     text_layer = ("native_text", "pdfplumber", "markitdown")
-    ocr_methods = ("paddle_ocr", "vlm_ocr")
+    ocr_methods = ("markitdown_ocr_llm", "paddle_ocr", "paddle_ocr_vl", "vlm_ocr")
 
-    text_layer_ok = any(
-        peers.get(m, {}).get("status") == "ok" and int(peers.get(m, {}).get("text_chars") or 0) > 0
-        for m in text_layer
-    )
-    ocr_ok = any(
-        peers.get(m, {}).get("status") == "ok" and int(peers.get(m, {}).get("text_chars") or 0) > 0
-        for m in ocr_methods
-    )
+    text_layer_ok = any(_peer_has_usable_text(peers.get(m, {})) for m in text_layer)
+    ocr_ok = any(_peer_has_usable_text(peers.get(m, {})) for m in ocr_methods)
 
     if text_layer_ok:
         return {
@@ -244,9 +287,23 @@ def run_peer_review_manifest(
     vlm_model: str | None = None,
     vlm_api_key: str = "dummy",
     run_paddle: bool = False,
+    run_paddle_vl: bool = False,
     run_markitdown: bool = True,
+    run_markitdown_ocr_llm: bool = False,
     run_pdfplumber: bool = True,
     run_native_text: bool = True,
+    paddle_service_url: str | None = None,
+    paddle_vl_service_url: str | None = None,
+    paddle_vl_backend: str | None = None,
+    paddle_vl_server_url: str | None = None,
+    paddle_vl_model: str | None = None,
+    paddle_vl_api_key: str | None = None,
+    markitdown_service_url: str | None = None,
+    markitdown_llm_base_url: str | None = None,
+    markitdown_llm_model: str | None = None,
+    markitdown_llm_api_key: str = "dummy",
+    markitdown_llm_prompt: str | None = None,
+    sample_artifacts_dir: Path | None = None,
     max_pages: int | None = 1,
     dpi: int = 200,
     workers: int = 1,
@@ -259,10 +316,14 @@ def run_peer_review_manifest(
     from gwanbo_ocr.pdf.io import read_jsonl, resolve_pdf_path, write_json_atomic
 
     vlm_runner = _make_vlm_runner(vlm_base_url, vlm_model, vlm_api_key) if vlm_base_url else None
+    effective_paddle_vl_model = paddle_vl_model or (
+        PADDLE_OCR_VL_MODEL if paddle_vl_server_url else None
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     items_dir = output_dir / "items"
     images_dir = output_dir / "images"
+    samples_dir = sample_artifacts_dir or (output_dir / "samples")
 
     summary: dict[str, Any] = {
         "manifest": str(manifest_path),
@@ -281,7 +342,18 @@ def run_peer_review_manifest(
             "run_native_text": run_native_text,
             "run_pdfplumber": run_pdfplumber,
             "run_markitdown": run_markitdown,
+            "run_markitdown_ocr_llm": run_markitdown_ocr_llm,
             "run_paddle": run_paddle,
+            "run_paddle_vl": run_paddle_vl,
+            "paddle_service_url": paddle_service_url,
+            "paddle_vl_service_url": paddle_vl_service_url,
+            "paddle_vl_backend": paddle_vl_backend,
+            "paddle_vl_server_url": paddle_vl_server_url,
+            "paddle_vl_model": effective_paddle_vl_model,
+            "markitdown_service_url": markitdown_service_url,
+            "markitdown_llm_base_url": markitdown_llm_base_url,
+            "markitdown_llm_model": markitdown_llm_model,
+            "sample_artifacts_dir": str(samples_dir),
             "vlm_model": vlm_model,
         },
     }
@@ -306,9 +378,22 @@ def run_peer_review_manifest(
                 "image_dir": str(images_dir / sample_id),
                 "vlm_runner": vlm_runner,
                 "run_paddle": run_paddle,
+                "run_paddle_vl": run_paddle_vl,
                 "run_markitdown": run_markitdown,
+                "run_markitdown_ocr_llm": run_markitdown_ocr_llm,
                 "run_pdfplumber": run_pdfplumber,
                 "run_native_text": run_native_text,
+                "paddle_service_url": paddle_service_url,
+                "paddle_vl_service_url": paddle_vl_service_url,
+                "paddle_vl_backend": paddle_vl_backend,
+                "paddle_vl_server_url": paddle_vl_server_url,
+                "paddle_vl_model": effective_paddle_vl_model,
+                "paddle_vl_api_key": paddle_vl_api_key,
+                "markitdown_service_url": markitdown_service_url,
+                "markitdown_llm_base_url": markitdown_llm_base_url,
+                "markitdown_llm_model": markitdown_llm_model,
+                "markitdown_llm_api_key": markitdown_llm_api_key,
+                "markitdown_llm_prompt": markitdown_llm_prompt,
                 "max_pages": max_pages,
                 "dpi": dpi,
                 "timeout_seconds": timeout_seconds,
@@ -320,6 +405,13 @@ def run_peer_review_manifest(
         sample_id = result["sample_id"]
         report = result["report"]
         sidecar_path = Path(result["sidecar_path"])
+        artifact_dir = _write_sample_artifact(
+            samples_dir / _safe_artifact_name(sample_id),
+            row=result["row"],
+            report=report,
+            image_dir=Path(result["image_dir"]),
+        )
+        report["sample_artifact_dir"] = str(artifact_dir)
         write_json_atomic(sidecar_path, report)
         summary["processed"] += 1
         if report.get("status") == "error":
@@ -409,9 +501,22 @@ def _process_work_item(work_item: dict[str, Any]) -> dict[str, Any]:
         dpi=int(work_item.get("dpi") or 200),
         timeout_seconds=int(work_item.get("timeout_seconds") or 60),
         run_paddle=bool(work_item.get("run_paddle")),
+        run_paddle_vl=bool(work_item.get("run_paddle_vl")),
         run_markitdown=bool(work_item.get("run_markitdown", True)),
+        run_markitdown_ocr_llm=bool(work_item.get("run_markitdown_ocr_llm")),
         run_pdfplumber=bool(work_item.get("run_pdfplumber", True)),
         run_native_text=bool(work_item.get("run_native_text", True)),
+        paddle_service_url=work_item.get("paddle_service_url"),
+        paddle_vl_service_url=work_item.get("paddle_vl_service_url"),
+        paddle_vl_backend=work_item.get("paddle_vl_backend"),
+        paddle_vl_server_url=work_item.get("paddle_vl_server_url"),
+        paddle_vl_model=work_item.get("paddle_vl_model"),
+        paddle_vl_api_key=work_item.get("paddle_vl_api_key"),
+        markitdown_service_url=work_item.get("markitdown_service_url"),
+        markitdown_llm_base_url=work_item.get("markitdown_llm_base_url"),
+        markitdown_llm_model=work_item.get("markitdown_llm_model"),
+        markitdown_llm_api_key=str(work_item.get("markitdown_llm_api_key") or "dummy"),
+        markitdown_llm_prompt=work_item.get("markitdown_llm_prompt"),
         metadata=metadata or None,
     )
     report.update(
@@ -424,6 +529,8 @@ def _process_work_item(work_item: dict[str, Any]) -> dict[str, Any]:
     return {
         "sample_id": work_item["sample_id"],
         "sidecar_path": work_item["sidecar_path"],
+        "row": row,
+        "image_dir": work_item["image_dir"],
         "report": report,
     }
 
@@ -465,7 +572,7 @@ def _choose_best_method(peers: dict[str, dict[str, Any]]) -> str | None:
     candidates = [
         (name, int(peer.get("text_chars") or 0), METHOD_PREFERENCE.get(name, 0))
         for name, peer in peers.items()
-        if peer.get("status") == "ok" and int(peer.get("text_chars") or 0) > 0
+        if _peer_has_usable_text(peer)
     ]
     if not candidates:
         return None
@@ -477,7 +584,7 @@ def _pairwise_similarities(peers: dict[str, dict[str, Any]]) -> dict[str, float]
     samples = {
         name: _norm_for_sim(str(peer.get("sample_text") or ""))
         for name, peer in peers.items()
-        if peer.get("status") == "ok" and peer.get("sample_text")
+        if _peer_has_usable_text(peer) and peer.get("sample_text")
     }
     result: dict[str, float] = {}
     names = sorted(samples)
@@ -502,6 +609,89 @@ def _compact_index(report: dict[str, Any], sidecar_path: Path) -> dict[str, Any]
         "peer_summaries": review.get("peer_summaries"),
         "ranked_by_f1": score.get("ranked_by_f1"),
         "sidecar_path": str(sidecar_path),
+        "sample_artifact_dir": report.get("sample_artifact_dir"),
         "generated_at": report.get("generated_at"),
         "error": report.get("error"),
     }
+
+
+def _write_sample_artifact(
+    artifact_dir: Path,
+    *,
+    row: dict[str, Any],
+    report: dict[str, Any],
+    image_dir: Path,
+) -> Path:
+    from gwanbo_ocr.pdf.io import write_json_atomic
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    source = {
+        "sample_id": report.get("sample_id"),
+        "pdf_key": report.get("pdf_key"),
+        "source": report.get("source"),
+        "path": report.get("path"),
+        "title": row.get("title"),
+        "category": row.get("category"),
+        "agency": row.get("agency"),
+        "row": row,
+        "rendered_images": [str(path) for path in sorted(image_dir.rglob("*.png"))]
+        if image_dir.exists()
+        else [],
+    }
+    peer_samples = {
+        name: {
+            "status": peer.get("status"),
+            "method": peer.get("method"),
+            "text_chars": peer.get("text_chars"),
+            "sample_text": peer.get("sample_text"),
+            "error": peer.get("error"),
+            "skip_reason": peer.get("skip_reason"),
+        }
+        for name, peer in (report.get("peers") or {}).items()
+        if isinstance(peer, dict)
+    }
+    diff_summary = {
+        "best_text_method": (report.get("review") or {}).get("best_text_method"),
+        "pairwise_sample_similarity": (report.get("review") or {}).get(
+            "pairwise_sample_similarity"
+        ),
+        "warnings": (report.get("review") or {}).get("warnings"),
+        "decision": report.get("decision"),
+    }
+    write_json_atomic(artifact_dir / "source.json", source)
+    write_json_atomic(artifact_dir / "peer_samples.json", peer_samples)
+    write_json_atomic(artifact_dir / "diff_summary.json", diff_summary)
+    (artifact_dir / "peer_samples.md").write_text(
+        _peer_samples_markdown(peer_samples),
+        encoding="utf-8",
+    )
+    return artifact_dir
+
+
+def _peer_samples_markdown(peer_samples: dict[str, dict[str, Any]]) -> str:
+    parts = ["# Peer Samples", ""]
+    for name, peer in sorted(peer_samples.items()):
+        parts.extend(
+            [
+                f"## {name}",
+                "",
+                f"- status: {peer.get('status')}",
+                f"- method: {peer.get('method')}",
+                f"- text_chars: {peer.get('text_chars')}",
+                "",
+                "```text",
+                str(peer.get("sample_text") or ""),
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(parts)
+
+
+def _safe_artifact_name(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value).strip("._-")
+    return safe or "unknown"
+
+
+def _peer_has_usable_text(peer: dict[str, Any]) -> bool:
+    return peer.get("status") in {"ok", "partial"} and int(peer.get("text_chars") or 0) > 0

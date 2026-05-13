@@ -1,0 +1,67 @@
+version: '3.9'
+
+services:
+  markitdown:
+    build:
+      context: .
+      dockerfile: Dockerfile.markitdown
+    image: markitdown:latest
+    container_name: gwanbo-markitdown
+    stdin_open: true
+    tty: true
+    # Volume mounts for input/output directories
+    volumes:
+      - ./runs:/workspace/runs:ro
+      - ./inputs:/workspace/inputs:rw
+      - ./outputs:/workspace/outputs:rw
+    working_dir: /workspace
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    # Health check
+    healthcheck:
+      test: ["CMD", "markitdown", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: markitdown server for batch processing (HTTP interface)
+  markitdown-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.markitdown.server
+    image: markitdown-server:latest
+    container_name: gwanbo-markitdown-server
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./runs:/workspace/runs:ro
+      - ./inputs:/workspace/inputs:rw
+      - ./outputs:/workspace/outputs:rw
+    working_dir: /workspace
+    environment:
+      - MARKITDOWN_PORT=8080
+      - MARKITDOWN_HOST=0.0.0.0
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - server

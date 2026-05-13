@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status (2026-05-13):** Historical record. The main architecture refactor described here has already been implemented in recent commits; unchecked boxes below do not represent current task state.
+
 **Goal:** Split `bench.py` → `bench/` package, `peer_review.py` → `peers/` package, extract `runners/preflight.py`, and thin `cli.strategy_pipeline` via `strategy.run_pipeline()`.
 
 **Architecture:** Each unit owns one responsibility and communicates through clear import boundaries. No backward-compat shims — all callers updated directly. Tests restructured to mirror new module layout.

@@ -23,14 +23,15 @@ Optional extras:
 ```bash
 python -m pip install -e ".[pdf]"          # PDF rendering helpers
 python -m pip install -e ".[qwen]"         # OpenAI-compatible Qwen client helpers
-python -m pip install -e ".[paddleocr]"    # PaddleOCR package
+python -m pip install -e ".[services]"     # FastAPI service wrappers
 python -m pip install -e ".[pdf,qwen,dev]"
 ```
 
 The project metadata intentionally keeps vLLM, torch, transformers, and local
-model-server runtimes out of base and optional dependencies. vLLM is expected
-to run as an external Docker service exposing an OpenAI-compatible endpoint,
-for example `http://127.0.0.1:8000/v1`.
+model-server runtimes out of base and optional dependencies. PaddleOCR and
+PaddlePaddle are also expected to run in the Docker service image, not in the
+host `.venv`. See [docs/container-ocr-pipeline.md](docs/container-ocr-pipeline.md)
+for the MarkItDown/PaddleOCR/vLLM compose runtime.
 
 ## Console Entry Point
 
@@ -96,8 +97,8 @@ gwanbo-ocr bench score \
 
 Default integration settings live in `configs/models.yaml`. That file records
 PDF rendering defaults, PaddleOCR settings, OpenAI-compatible model aliases,
-and Docker launch settings for the MI300X/ROCm vLLM runtime. The default
-baseline alias is `qwen36_baseline`, which resolves to
+service URLs, and Docker launch settings for the MI300X/ROCm vLLM runtime. The
+default baseline alias is `qwen36_baseline`, which resolves to
 `Qwen/Qwen3.6-35B-A3B-FP8`.
 
 ## Layout Strategy Clustering

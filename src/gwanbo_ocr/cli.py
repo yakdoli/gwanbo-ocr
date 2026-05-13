@@ -12,7 +12,10 @@ manifest_app = typer.Typer(help="Build immutable PDF manifests from source artif
 pdf_app = typer.Typer(help="Classify PDFs, extract text layouts, and render pages.")
 bench_app = typer.Typer(help="Run and score OCR/VLM benchmarks.")
 peer_app = typer.Typer(
-    help="Multi-method peer review: compare native text, pdfplumber, MarkItDown, PaddleOCR, VLM."
+    help=(
+        "Multi-method peer review: compare native text, pdfplumber, MarkItDown, "
+        "PaddleOCR, PaddleOCR-VL, VLM."
+    )
 )
 strategy_app = typer.Typer(help="Cluster PDF layouts and evaluate parsing strategies.")
 
@@ -21,6 +24,9 @@ app.add_typer(pdf_app, name="pdf")
 app.add_typer(bench_app, name="bench")
 app.add_typer(peer_app, name="peer")
 app.add_typer(strategy_app, name="strategy")
+
+convert_app = typer.Typer(help="Convert PDFs and documents to Markdown using MarkItDown.")
+app.add_typer(convert_app, name="convert")
 
 
 @manifest_app.command("build")
@@ -96,6 +102,96 @@ def pdf_layout(
         only_missing=only_missing,
         force=force,
         limit=limit,
+    )
+    _echo_summary(summary)
+
+
+@convert_app.command("file")
+def convert_file(
+    input_path: Path = typer.Argument(..., help="Input PDF or document file path."),
+    output: Path = typer.Option(..., help="Output Markdown file or directory."),
+    mode: str = typer.Option("plain", "--mode", help="Conversion mode: plain or ocr-llm."),
+    service_url: str | None = typer.Option(
+        None, "--service-url", help="Optional MarkItDown HTTP service URL."
+    ),
+    llm_base_url: str | None = typer.Option(
+        None, "--llm-base-url", help="OpenAI-compatible base URL for OCR+LLM mode."
+    ),
+    llm_model: str | None = typer.Option(
+        None, "--llm-model", help="Vision-capable model for OCR+LLM mode."
+    ),
+    llm_api_key: str = typer.Option("dummy", "--llm-api-key", help="LLM API key."),
+    llm_prompt: str | None = typer.Option(
+        None, "--llm-prompt", help="Optional MarkItDown OCR prompt override."
+    ),
+    timeout: float = typer.Option(120.0, "--timeout", help="Conversion timeout in seconds."),
+) -> None:
+    """Convert a single document to Markdown."""
+    from gwanbo_ocr.conversion import ConversionError, convert_document
+
+    try:
+        summary = convert_document(
+            input_path=input_path,
+            output=output,
+            mode=mode,
+            service_url=service_url,
+            llm_base_url=llm_base_url,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_prompt=llm_prompt,
+            timeout_seconds=timeout,
+        )
+    except ConversionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _echo_summary(summary)
+
+
+@convert_app.command("manifest")
+def convert_manifest(
+    input: Path = typer.Option(..., "--input", "--manifest", help="Input PDF manifest JSONL."),
+    output: Path = typer.Option(..., help="Output directory for Markdown files."),
+    mode: str = typer.Option("plain", "--mode", help="Conversion mode: plain or ocr-llm."),
+    key: str = typer.Option("sample_id", help="Manifest key field for output filename."),
+    pdf_path_field: str = typer.Option("pdf_path", help="Manifest field containing PDF path."),
+    workers: int = typer.Option(1, help="Parallel worker count."),
+    limit: int | None = typer.Option(None, help="Maximum rows to process."),
+    skip_errors: bool = typer.Option(True, help="Skip files with conversion errors."),
+    force: bool = typer.Option(False, help="Overwrite existing output files."),
+    service_url: str | None = typer.Option(
+        None, "--service-url", help="Optional MarkItDown HTTP service URL."
+    ),
+    llm_base_url: str | None = typer.Option(
+        None, "--llm-base-url", help="OpenAI-compatible base URL for OCR+LLM mode."
+    ),
+    llm_model: str | None = typer.Option(
+        None, "--llm-model", help="Vision-capable model for OCR+LLM mode."
+    ),
+    llm_api_key: str = typer.Option("dummy", "--llm-api-key", help="LLM API key."),
+    llm_prompt: str | None = typer.Option(
+        None, "--llm-prompt", help="Optional MarkItDown OCR prompt override."
+    ),
+    timeout: float = typer.Option(120.0, "--timeout", help="Per-file timeout in seconds."),
+) -> None:
+    """Batch convert PDFs from a manifest to Markdown files."""
+    from gwanbo_ocr.conversion import convert_manifest as convert_manifest_rows
+
+    summary = convert_manifest_rows(
+        manifest_path=input,
+        output_dir=output,
+        mode=mode,
+        key=key,
+        pdf_path_field=pdf_path_field,
+        workers=workers,
+        limit=limit,
+        skip_errors=skip_errors,
+        force=force,
+        service_url=service_url,
+        llm_base_url=llm_base_url,
+        llm_model=llm_model,
+        llm_api_key=llm_api_key,
+        llm_prompt=llm_prompt,
+        timeout_seconds=timeout,
     )
     _echo_summary(summary)
 
@@ -311,6 +407,63 @@ def strategy_pipeline(
     ),
     run_peer: bool = typer.Option(True, "--peer/--no-peer", help="Run peer review stages."),
     run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
+    run_paddle_vl: bool = typer.Option(
+        False, "--paddle-vl/--no-paddle-vl", help="Enable PaddleOCR-VL peer."
+    ),
+    run_markitdown_ocr_llm: bool = typer.Option(
+        False,
+        "--markitdown-ocr-llm/--no-markitdown-ocr-llm",
+        help="Enable MarkItDown OCR plugin with an OpenAI-compatible VLM.",
+    ),
+    markitdown_service_url: str | None = typer.Option(
+        None,
+        "--markitdown-service-url",
+        help="Optional MarkItDown OCR API URL, e.g. http://127.0.0.1:8081.",
+    ),
+    markitdown_llm_base_url: str | None = typer.Option(
+        None,
+        "--markitdown-llm-base-url",
+        help="OpenAI-compatible base URL used by MarkItDown OCR+LLM.",
+    ),
+    markitdown_llm_model: str | None = typer.Option(
+        None,
+        "--markitdown-llm-model",
+        help="Vision-capable model name used by MarkItDown OCR+LLM.",
+    ),
+    markitdown_llm_api_key: str = typer.Option(
+        "dummy", "--markitdown-llm-api-key", help="API key for MarkItDown OCR+LLM."
+    ),
+    markitdown_llm_prompt: str | None = typer.Option(
+        None, "--markitdown-llm-prompt", help="Optional MarkItDown OCR prompt override."
+    ),
+    paddle_service_url: str | None = typer.Option(
+        None,
+        "--paddle-service-url",
+        help="Optional PaddleOCR API URL for classic OCR, e.g. http://127.0.0.1:8082.",
+    ),
+    paddle_vl_service_url: str | None = typer.Option(
+        None,
+        "--paddle-vl-service-url",
+        help="Optional PaddleOCR API URL for PaddleOCR-VL client calls.",
+    ),
+    paddle_vl_backend: str | None = typer.Option(
+        None,
+        "--paddle-vl-backend",
+        help="PaddleOCR-VL recognition backend, e.g. vllm-server.",
+    ),
+    paddle_vl_server_url: str | None = typer.Option(
+        None,
+        "--paddle-vl-server-url",
+        help="PaddleOCR-VL recognition server URL, e.g. http://127.0.0.1:8000/v1.",
+    ),
+    paddle_vl_model: str | None = typer.Option(
+        None,
+        "--paddle-vl-model",
+        help="PaddleOCR-VL API model name for server-backed recognition.",
+    ),
+    paddle_vl_api_key: str | None = typer.Option(
+        None, "--paddle-vl-api-key", help="PaddleOCR-VL recognition server API key."
+    ),
     limit: int | None = typer.Option(None, help="Optional row/task cap for quick runs."),
 ) -> None:
     """Run end-to-end strategy pipeline from profiling to strategy evaluation."""
@@ -334,6 +487,19 @@ def strategy_pipeline(
         preflight_timeout_s=preflight_timeout_s,
         run_peer=run_peer,
         run_paddle=run_paddle,
+        run_paddle_vl=run_paddle_vl,
+        run_markitdown_ocr_llm=run_markitdown_ocr_llm,
+        markitdown_service_url=markitdown_service_url,
+        markitdown_llm_base_url=markitdown_llm_base_url,
+        markitdown_llm_model=markitdown_llm_model,
+        markitdown_llm_api_key=markitdown_llm_api_key,
+        markitdown_llm_prompt=markitdown_llm_prompt,
+        paddle_service_url=paddle_service_url,
+        paddle_vl_service_url=paddle_vl_service_url,
+        paddle_vl_backend=paddle_vl_backend,
+        paddle_vl_server_url=paddle_vl_server_url,
+        paddle_vl_model=paddle_vl_model,
+        paddle_vl_api_key=paddle_vl_api_key,
         limit=limit,
     )
     _echo_summary(
@@ -341,7 +507,9 @@ def strategy_pipeline(
             "status": "ok",
             "output": str(output),
             "pipeline_summary": str(output / "pipeline_summary.json"),
-            "evaluated_clusters": pipeline_summary.get("strategy_eval", {}).get("evaluated_clusters", 0),
+            "evaluated_clusters": pipeline_summary.get("strategy_eval", {}).get(
+                "evaluated_clusters", 0
+            ),
             "bench_tasks": pipeline_summary.get("bench_run", {}).get("tasks", 0),
         }
     )
@@ -361,6 +529,63 @@ def peer_run(
     ),
     vlm_api_key: str = typer.Option("dummy", "--vlm-api-key", help="API key for the VLM endpoint."),
     run_paddle: bool = typer.Option(False, "--paddle/--no-paddle", help="Enable PaddleOCR peer."),
+    run_paddle_vl: bool = typer.Option(
+        False, "--paddle-vl/--no-paddle-vl", help="Enable PaddleOCR-VL peer."
+    ),
+    run_markitdown_ocr_llm: bool = typer.Option(
+        False,
+        "--markitdown-ocr-llm/--no-markitdown-ocr-llm",
+        help="Enable MarkItDown OCR plugin with an OpenAI-compatible VLM.",
+    ),
+    markitdown_service_url: str | None = typer.Option(
+        None,
+        "--markitdown-service-url",
+        help="Optional MarkItDown OCR API URL, e.g. http://127.0.0.1:8081.",
+    ),
+    markitdown_llm_base_url: str | None = typer.Option(
+        None,
+        "--markitdown-llm-base-url",
+        help="OpenAI-compatible base URL used by MarkItDown OCR+LLM.",
+    ),
+    markitdown_llm_model: str | None = typer.Option(
+        None,
+        "--markitdown-llm-model",
+        help="Vision-capable model name used by MarkItDown OCR+LLM.",
+    ),
+    markitdown_llm_api_key: str = typer.Option(
+        "dummy", "--markitdown-llm-api-key", help="API key for MarkItDown OCR+LLM."
+    ),
+    markitdown_llm_prompt: str | None = typer.Option(
+        None, "--markitdown-llm-prompt", help="Optional MarkItDown OCR prompt override."
+    ),
+    paddle_service_url: str | None = typer.Option(
+        None,
+        "--paddle-service-url",
+        help="Optional PaddleOCR API URL for classic OCR, e.g. http://127.0.0.1:8082.",
+    ),
+    paddle_vl_service_url: str | None = typer.Option(
+        None,
+        "--paddle-vl-service-url",
+        help="Optional PaddleOCR API URL for PaddleOCR-VL client calls.",
+    ),
+    paddle_vl_backend: str | None = typer.Option(
+        None,
+        "--paddle-vl-backend",
+        help="PaddleOCR-VL recognition backend, e.g. vllm-server.",
+    ),
+    paddle_vl_server_url: str | None = typer.Option(
+        None,
+        "--paddle-vl-server-url",
+        help="PaddleOCR-VL recognition server URL, e.g. http://127.0.0.1:8000/v1.",
+    ),
+    paddle_vl_model: str | None = typer.Option(
+        None,
+        "--paddle-vl-model",
+        help="PaddleOCR-VL API model name for server-backed recognition.",
+    ),
+    paddle_vl_api_key: str | None = typer.Option(
+        None, "--paddle-vl-api-key", help="PaddleOCR-VL recognition server API key."
+    ),
     skip_markitdown: bool = typer.Option(False, "--skip-markitdown", help="Skip MarkItDown peer."),
     skip_pdfplumber: bool = typer.Option(False, "--skip-pdfplumber", help="Skip pdfplumber peer."),
     skip_native: bool = typer.Option(
@@ -384,6 +609,19 @@ def peer_run(
         vlm_model=vlm_model,
         vlm_api_key=vlm_api_key,
         run_paddle=run_paddle,
+        run_paddle_vl=run_paddle_vl,
+        run_markitdown_ocr_llm=run_markitdown_ocr_llm,
+        markitdown_service_url=markitdown_service_url,
+        markitdown_llm_base_url=markitdown_llm_base_url,
+        markitdown_llm_model=markitdown_llm_model,
+        markitdown_llm_api_key=markitdown_llm_api_key,
+        markitdown_llm_prompt=markitdown_llm_prompt,
+        paddle_service_url=paddle_service_url,
+        paddle_vl_service_url=paddle_vl_service_url,
+        paddle_vl_backend=paddle_vl_backend,
+        paddle_vl_server_url=paddle_vl_server_url,
+        paddle_vl_model=paddle_vl_model,
+        paddle_vl_api_key=paddle_vl_api_key,
         run_markitdown=not skip_markitdown,
         run_pdfplumber=not skip_pdfplumber,
         run_native_text=not skip_native,

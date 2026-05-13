@@ -1,0 +1,113 @@
+services:
+  gwanbo-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    image: gwanbo-ocr-app:latest
+    working_dir: /workspace
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
+      GWANBO_MARKITDOWN_SERVICE_URL: http://markitdown-ocr-api:8080
+      GWANBO_PADDLEOCR_SERVICE_URL: http://paddleocr-api:8080
+      GWANBO_QWEN_BASE_URL: http://vllm-qwen:8000/v1
+      GWANBO_PADDLE_VL_BASE_URL: http://paddleocr-vl-vllm:8000/v1
+    volumes:
+      - /root/peti:/root/peti:ro
+      - ./runs:/workspace/runs:rw
+      - ./configs:/workspace/configs:ro
+    depends_on:
+      markitdown-ocr-api:
+        condition: service_started
+      paddleocr-api:
+        condition: service_started
+    profiles:
+      - app
+
+  vllm-qwen:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: gwanbo-vllm-qwen
+    ipc: host
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - ${HF_HOME:-/root/.cache/huggingface}:/root/.cache/huggingface:rw
+    command:
+      - --model
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - "131072"
+      - --trust-remote-code
+      - --disable-custom-all-reduce
+      - --enforce-eager
+    profiles:
+      - vlm
+
+  paddleocr-vl-vllm:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: gwanbo-paddleocr-vl-vllm
+    ipc: host
+    ports:
+      - "127.0.0.1:8118:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - ${HF_HOME:-/root/.cache/huggingface}:/root/.cache/huggingface:rw
+    command:
+      - --model
+      - PaddlePaddle/PaddleOCR-VL-1.5
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - "32768"
+      - --trust-remote-code
+    profiles:
+      - paddle-vl
+
+  paddleocr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.paddleocr.server
+    image: gwanbo-paddleocr-api:latest
+    container_name: gwanbo-paddleocr-api
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      PADDLEOCR_VL_REC_SERVER_URL: http://paddleocr-vl-vllm:8000/v1
+      PADDLEOCR_VL_MODEL: PaddlePaddle/PaddleOCR-VL-1.5
+    volumes:
+      - /root/peti:/root/peti:ro
+      - ./runs:/workspace/runs:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  markitdown-ocr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.markitdown.server
+    image: gwanbo-markitdown-ocr-api:latest
+    container_name: gwanbo-markitdown-ocr-api
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      MARKITDOWN_LLM_BASE_URL: http://vllm-qwen:8000/v1
+      MARKITDOWN_LLM_MODEL: Qwen/Qwen3.6-35B-A3B-FP8
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
+    volumes:
+      - /root/peti:/root/peti:ro
+      - ./runs:/workspace/runs:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

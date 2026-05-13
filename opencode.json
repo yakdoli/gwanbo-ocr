@@ -33,7 +33,7 @@
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
         "vonwig/mcp-server-docker:latest"
       ],
-      "enabled": true,
+      "enabled": false,
       "timeout": 15000
     },
     "pdf": {

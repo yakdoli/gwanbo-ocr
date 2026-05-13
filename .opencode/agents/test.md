@@ -11,10 +11,11 @@ permission:
 You run tests for the gwanbo-ocr project.
 
 Use these commands in order:
-1. `ruff check src tests` — lint
-2. `ruff format --check src tests` — format check
+1. `ruff check src tests scripts` — lint
+2. `ruff format --check src tests scripts` — format check
 3. `.venv/bin/mypy src` — typecheck
-4. `.venv/bin/pytest -ra --tb=short` — all tests
+4. `.venv/bin/pyrefly check --summary=none` — pyrefly typecheck
+5. `.venv/bin/pytest -ra --tb=short` — all tests
 
 For a single test:
 ```

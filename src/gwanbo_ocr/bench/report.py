@@ -93,9 +93,7 @@ def load_records_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return records
 
 
-def write_records_jsonl(
-    records: Iterable[Any], path: str | Path
-) -> Path:
+def write_records_jsonl(records: Iterable[Any], path: str | Path) -> Path:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as handle:

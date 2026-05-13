@@ -31,7 +31,8 @@ sidecar, 렌더 이미지, benchmark result, report는 모두 이 저장소 밖�
 
 ## 아키텍처
 
-파이프라인은 다섯 단계로 나뉩니다.
+핵심 OCR 벤치마크 흐름은 manifest/classify/layout/render/bench로 이어지며,
+별도의 pdf profile/strategy 단계가 대용량 실행 전 전략 수립을 보조합니다.
 
 1. `manifest build`
    `/root/peti/artifacts` 아래의 item metadata와 PDF 경로를 수집해 JSONL
@@ -114,7 +115,11 @@ URL로 첨부해 JSON-only transcription prompt를 전송합니다.
 - `src/gwanbo_ocr/prompts.py`: OCR/VLM transcription prompt
 - `src/gwanbo_ocr/runners/vllm.py`: OpenAI-compatible VLM runner
 - `src/gwanbo_ocr/runners/paddle.py`: PaddleOCR adapter
-- `src/gwanbo_ocr/bench.py`: benchmark 실행 및 throughput report
+- `src/gwanbo_ocr/services.py`: HTTP clients for MarkItDown and PaddleOCR service containers
+- `docs/container-ocr-pipeline.md`: containerized MarkItDown/PaddleOCR/vLLM runtime guide
+- `src/gwanbo_ocr/runners/preflight.py`: OpenAI-compatible endpoint/model preflight 검증
+- `src/gwanbo_ocr/bench/{run,score,report}.py`: benchmark 실행, scoring, throughput report
+- `src/gwanbo_ocr/peers/`: peer extraction/review orchestration
 - `src/gwanbo_ocr/metrics.py`: CER/WER/token/table scoring helpers
 - `src/gwanbo_ocr/sampling.py`: deterministic sample suite 생성
 
