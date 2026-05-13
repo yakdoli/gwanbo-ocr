@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-SUCCESS_STATUSES = {"ok", "success", "completed"}
+
+from .report import _count_by, _duration, summarize_throughput, write_records_jsonl
 
 
 @dataclass(frozen=True)
@@ -36,100 +37,6 @@ class RunRecord:
         }
 
 
-def summarize_throughput(records: Iterable[RunRecord | Mapping[str, Any]]) -> dict[str, Any]:
-    rows = [_as_mapping(record) for record in records]
-    durations: list[float] = []
-    starts: list[datetime] = []
-    ends: list[datetime] = []
-    for row in rows:
-        duration = _duration(row)
-        if duration is not None:
-            durations.append(duration)
-        start = _parse_time(row.get("started_at"))
-        if start is not None:
-            starts.append(start)
-        end = _parse_time(row.get("ended_at"))
-        if end is not None:
-            ends.append(end)
-
-    elapsed_s = 0.0
-    if starts and ends:
-        elapsed_s = max((max(ends) - min(starts)).total_seconds(), 0.0)
-    elif durations:
-        elapsed_s = sum(durations)
-
-    total = len(rows)
-    succeeded = sum(1 for row in rows if _status(row) in SUCCESS_STATUSES)
-    failed = total - succeeded
-    pages = sum(int(row.get("pages") or row.get("page_count") or 0) for row in rows)
-    bytes_processed = sum(
-        int(row.get("bytes_processed") or row.get("size_bytes") or 0) for row in rows
-    )
-    worker_time_s = sum(durations)
-
-    return {
-        "documents": total,
-        "succeeded": succeeded,
-        "failed": failed,
-        "pages": pages,
-        "bytes_processed": bytes_processed,
-        "elapsed_s": elapsed_s,
-        "worker_time_s": worker_time_s,
-        "documents_per_s": _rate(total, elapsed_s),
-        "pages_per_s": _rate(pages, elapsed_s),
-        "mb_per_s": _rate(bytes_processed / 1_000_000, elapsed_s),
-        "worker_pages_per_s": _rate(pages, worker_time_s),
-        "latency_s": {
-            "min": min(durations) if durations else 0.0,
-            "p50": percentile(durations, 50),
-            "p95": percentile(durations, 95),
-            "max": max(durations) if durations else 0.0,
-        },
-        "by_status": _count_by(rows, "status"),
-        "by_engine": _count_by(rows, "engine"),
-    }
-
-
-def format_throughput_report(summary: Mapping[str, Any], *, title: str = "OCR Throughput") -> str:
-    latency_payload = summary.get("latency_s")
-    latency: Mapping[str, Any] = latency_payload if isinstance(latency_payload, Mapping) else {}
-    lines = [
-        f"# {title}",
-        "",
-        f"- documents: {summary.get('documents', 0)}",
-        f"- succeeded: {summary.get('succeeded', 0)}",
-        f"- failed: {summary.get('failed', 0)}",
-        f"- pages: {summary.get('pages', 0)}",
-        f"- elapsed_s: {_fmt(summary.get('elapsed_s', 0.0))}",
-        f"- documents_per_s: {_fmt(summary.get('documents_per_s', 0.0))}",
-        f"- pages_per_s: {_fmt(summary.get('pages_per_s', 0.0))}",
-        f"- mb_per_s: {_fmt(summary.get('mb_per_s', 0.0))}",
-        f"- latency_p50_s: {_fmt(latency.get('p50', 0.0))}",
-        f"- latency_p95_s: {_fmt(latency.get('p95', 0.0))}",
-    ]
-    return "\n".join(lines) + "\n"
-
-
-def load_records_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    with Path(path).open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return records
-
-
-def write_records_jsonl(records: Iterable[RunRecord | Mapping[str, Any]], path: str | Path) -> Path:
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(_as_mapping(record), sort_keys=True))
-            handle.write("\n")
-    return output
-
-
 def run_benchmark(
     *,
     suite: str,
@@ -143,12 +50,8 @@ def run_benchmark(
     preflight_vllm: bool = False,
     preflight_timeout_s: float = 5.0,
 ) -> dict[str, Any]:
-    """Run a lightweight OCR/VLM benchmark over rendered image tasks.
+    from gwanbo_ocr.runners.preflight import preflight_openai_endpoint
 
-    The function is intentionally conservative: it consumes an existing sample
-    JSON/JSONL with `image_path` fields. Suite names such as `smoke` are
-    recorded but not auto-expanded until a sample builder has produced files.
-    """
     output = Path(run_dir)
     output.mkdir(parents=True, exist_ok=True)
     tasks = _load_suite_tasks(suite)
@@ -166,7 +69,6 @@ def run_benchmark(
     elif not _tasks_require_vllm(tasks, enforce_strategy_routing=enforce_strategy_routing):
         preflight = {"status": "skipped_no_vllm_route"}
     else:
-        from gwanbo_ocr.runners.preflight import preflight_openai_endpoint
         preflight = preflight_openai_endpoint(
             base_url=base_url,
             api_key=api_key,
@@ -314,49 +216,12 @@ def _run_benchmark_task(
     return record
 
 
-def score_benchmark(*, run_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
-    """Score benchmark outputs and write aggregate JSON/Markdown reports."""
-    from gwanbo_ocr.metrics import evaluate_document
-
-    run = Path(run_dir)
-    output = Path(output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-    result_path = run / "results.jsonl"
-    records = load_records_jsonl(result_path) if result_path.exists() else []
-    scored: list[dict[str, Any]] = []
-    for record in records:
-        reference = record.get("reference_text") or record.get("gold_text") or ""
-        hypothesis = record.get("text") or ""
-        metrics = evaluate_document(reference, hypothesis) if reference else {}
-        scored.append({**record, "metrics": metrics})
-    scores_path = write_records_jsonl(scored, output / "scores.jsonl")
-    throughput = summarize_throughput(records)
-    report = format_throughput_report(throughput, title="gwanbo-ocr Benchmark")
-    (output / "summary.md").write_text(report, encoding="utf-8")
-    summary = {
-        "status": "ok",
-        "run_dir": str(run),
-        "output_dir": str(output),
-        "records": len(records),
-        "scores": str(scores_path),
-        "throughput": throughput,
-        "by_strategy": _count_by(records, "strategy"),
-        "by_route": _count_by(records, "route"),
-    }
-    (output / "summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return summary
-
-
 def resolve_runner_model(
     runner_name: str,
     *,
     config_path: str | Path = "configs/models.yaml",
 ) -> str:
     """Resolve a benchmark runner alias to the actual vLLM/OpenAI model id."""
-
     config = Path(config_path)
     if not config.exists():
         return runner_name
@@ -376,19 +241,6 @@ def resolve_runner_model(
     return str(model) if model else runner_name
 
 
-def percentile(values: Iterable[float], percent: float) -> float:
-    ordered = sorted(float(value) for value in values)
-    if not ordered:
-        return 0.0
-    if len(ordered) == 1:
-        return ordered[0]
-    rank = (len(ordered) - 1) * (percent / 100)
-    lower = int(rank)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = rank - lower
-    return ordered[lower] * (1 - weight) + ordered[upper] * weight
-
-
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -398,6 +250,7 @@ def _load_suite_tasks(suite: str) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     if path.suffix == ".jsonl":
+        from .report import load_records_jsonl
         return load_records_jsonl(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, Mapping):
@@ -419,7 +272,7 @@ def _file_size(path_text: Any) -> int:
 
 
 def _tasks_require_vllm(
-    tasks: Iterable[Mapping[str, Any]],
+    tasks: Any,
     *,
     enforce_strategy_routing: bool,
 ) -> bool:
@@ -461,62 +314,3 @@ def _transcribe_with_paddle(image_path: Any, *, page_number: int) -> Any:
 
     runner = PaddleOcrRunner(lang="korean")
     return runner.transcribe(image_path, page_number=page_number)
-
-
-def _duration(row: Mapping[str, Any]) -> float | None:
-    value = row.get("duration_s")
-    if value is not None:
-        return float(value)
-    start = _parse_time(row.get("started_at"))
-    end = _parse_time(row.get("ended_at"))
-    if start is None or end is None:
-        return None
-    return max((end - start).total_seconds(), 0.0)
-
-
-def _parse_time(value: Any) -> datetime | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value
-    text = str(value)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
-
-
-def _status(row: Mapping[str, Any]) -> str:
-    return str(row.get("status") or "").casefold()
-
-
-def _rate(numerator: float, seconds: float) -> float:
-    return numerator / seconds if seconds > 0 else 0.0
-
-
-def _count_by(rows: Iterable[Mapping[str, Any]], field: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for row in rows:
-        value = str(row.get(field) or "")
-        if not value:
-            continue
-        counts[value] = counts.get(value, 0) + 1
-    return dict(sorted(counts.items()))
-
-
-def _fmt(value: Any) -> str:
-    try:
-        return f"{float(value):.3f}"
-    except (TypeError, ValueError):
-        return "0.000"
-
-
-def _as_mapping(record: RunRecord | Mapping[str, Any]) -> dict[str, Any]:
-    if isinstance(record, RunRecord):
-        return record.to_dict()
-    return dict(record)
