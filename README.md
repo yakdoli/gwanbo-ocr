@@ -132,3 +132,25 @@ scripts/clean_venv_vllm_residue.sh --venv .venv --apply
 The first command is a dry run. The second command uninstalls matching packages
 and removes leftover site-packages directories from the selected virtual
 environment.
+
+## Workspace Cleanup
+
+A small helper script is provided to locate and optionally remove temporary
+artefacts created during development (pycache, .pyc, pytest/mypy caches,
+and notebook checkpoints). It defaults to a dry run; pass `--apply` to delete.
+
+Usage (dry run):
+
+```bash
+scripts/cleanup_workspace.sh
+```
+
+To remove the files printed by the dry run:
+
+```bash
+scripts/cleanup_workspace.sh --apply
+```
+
+To also remove the `.venv` or `runs/` output directories, add the flags
+`--remove-venv` and/or `--remove-runs` (use with `--apply`).
+
