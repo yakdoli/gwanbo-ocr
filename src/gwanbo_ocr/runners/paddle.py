@@ -55,8 +55,9 @@ class PaddleOcrRunner:
         **kwargs: Any,
     ) -> TranscriptionResult:
         path, cleanup_path = _coerce_image_to_path(image)
+        cls = kwargs.pop("cls", self.use_angle_cls)
         try:
-            raw = self.ocr.ocr(path, cls=kwargs.pop("cls", self.use_angle_cls), **kwargs)
+            raw = _call_classic_ocr(self.ocr, path, cls=cls, kwargs=kwargs)
         finally:
             if cleanup_path is not None:
                 cleanup_path.unlink(missing_ok=True)
@@ -163,6 +164,19 @@ def _drop_none(values: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
+def _call_classic_ocr(ocr: Any, path: str, *, cls: bool, kwargs: dict[str, Any]) -> Any:
+    if hasattr(ocr, "ocr"):
+        try:
+            return ocr.ocr(path, cls=cls, **kwargs)
+        except TypeError as exc:
+            if "unexpected keyword argument 'cls'" not in str(exc):
+                raise
+            return ocr.ocr(path, **kwargs)
+    if hasattr(ocr, "predict"):
+        return ocr.predict(path, **kwargs)
+    raise TypeError("PaddleOCR object must expose ocr(...) or predict(...)")
+
+
 def _coerce_image_to_path(image: ImageInput) -> tuple[str, Path | None]:
     if isinstance(image, Path):
         return str(image.expanduser()), None
@@ -258,15 +272,15 @@ def _iter_paddle_blocks(raw: Any) -> Iterable[dict[str, Any]]:
     if raw is None:
         return
 
+    if isinstance(raw, Mapping):
+        yield from _iter_mapping_blocks(raw)
+        return
+
     if hasattr(raw, "json"):
         json_value = raw.json
         if callable(json_value):
             json_value = json_value()
         yield from _iter_paddle_blocks(json_value)
-        return
-
-    if isinstance(raw, Mapping):
-        yield from _iter_mapping_blocks(raw)
         return
 
     if isinstance(raw, (list, tuple)):

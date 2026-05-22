@@ -29,16 +29,35 @@ def test_summarize_throughput_uses_wall_elapsed_time() -> None:
                 bytes_processed=2_000_000,
                 engine="ocr-a",
             ),
+            {
+                "item_id": "c",
+                "status": "ok",
+                "started_at": "2026-05-12T00:00:05Z",
+                "ended_at": "2026-05-12T00:00:10Z",
+                "pages": 1,
+                "engine": "ocr-b",
+                "finish_reason": "length",
+                "response_metadata": {
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 20,
+                        "total_tokens": 30,
+                    }
+                },
+            },
         ]
     )
 
-    assert summary["documents"] == 2
-    assert summary["succeeded"] == 1
+    assert summary["documents"] == 3
+    assert summary["succeeded"] == 2
     assert summary["failed"] == 1
-    assert summary["pages"] == 30
+    assert summary["pages"] == 31
     assert summary["elapsed_s"] == 10
-    assert summary["pages_per_s"] == 3.0
-    assert summary["by_engine"] == {"ocr-a": 2}
+    assert summary["pages_per_s"] == 3.1
+    assert summary["completion_tokens"] == 20
+    assert summary["completion_tokens_per_s"] == 2.0
+    assert summary["by_finish_reason"] == {"length": 1}
+    assert summary["by_engine"] == {"ocr-a": 2, "ocr-b": 1}
 
 
 def test_format_throughput_report_is_markdown() -> None:

@@ -161,7 +161,7 @@ def build_transcription_messages(
     page_number: int | None = None,
     language_hint: str | None = None,
     schema: Mapping[str, Any] | None = None,
-    system_prompt: str = TRANSCRIPTION_SYSTEM_PROMPT,
+    system_prompt: str | None = TRANSCRIPTION_SYSTEM_PROMPT,
     user_prompt: str | None = None,
     image_mime_type: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -186,10 +186,11 @@ def build_transcription_messages(
             },
         ]
 
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages: list[dict[str, Any]] = []
+    if system_prompt is not None:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_content})
+    return messages
 
 
 def _path_to_data_url(path: Path, *, mime_type: str | None) -> str:

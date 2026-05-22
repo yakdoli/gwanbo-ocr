@@ -88,7 +88,7 @@ def parse_json_response(text: str, *, strict: bool = True) -> dict[str, Any]:
     This is useful while developing against models that sometimes leak prose.
     """
 
-    candidate = _strip_code_fence(text.strip())
+    candidate = _strip_reasoning_blocks(_strip_code_fence(text.strip()))
     decoder = json.JSONDecoder()
 
     try:
@@ -108,7 +108,7 @@ def parse_json_response(text: str, *, strict: bool = True) -> dict[str, Any]:
 
     if strict:
         raise ValueError("Model response did not contain valid JSON")
-    return {"text": text, "blocks": [{"text": text}], "warnings": ["non_json_response"]}
+    return {"text": candidate, "blocks": [{"text": candidate}], "warnings": ["non_json_response"]}
 
 
 def _strip_code_fence(text: str) -> str:
@@ -118,6 +118,16 @@ def _strip_code_fence(text: str) -> str:
     if len(lines) >= 2 and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return text
+
+
+def _strip_reasoning_blocks(text: str) -> str:
+    candidate = text.lstrip()
+    while candidate.startswith("<think>"):
+        end = candidate.find("</think>")
+        if end < 0:
+            return text
+        candidate = candidate[end + len("</think>") :].lstrip()
+    return candidate
 
 
 def _normalize_json_payload(value: Any) -> dict[str, Any]:

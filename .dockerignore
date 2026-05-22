@@ -1,0 +1,13 @@
+**
+
+!Dockerfile*
+!docker-compose*.yml
+!pyproject.toml
+!README.md
+
+!src/
+!src/**
+!scripts/
+!scripts/**
+!configs/
+!configs/**

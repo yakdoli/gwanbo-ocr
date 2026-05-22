@@ -75,6 +75,16 @@ class TestParseJsonResponse:
         result = parse_json_response(response)
         assert result["text"] == "embedded"
 
+    def test_strips_leading_reasoning_block_before_json(self) -> None:
+        response = '<think>\n\n</think>\n\n{"text": "clean"}'
+        result = parse_json_response(response)
+        assert result["text"] == "clean"
+
+    def test_non_strict_strips_leading_reasoning_block(self) -> None:
+        response = "<think>\ninternal\n</think>\n\nplain output"
+        result = parse_json_response(response, strict=False)
+        assert result["text"] == "plain output"
+
     def test_raises_on_non_json_in_strict_mode(self) -> None:
         with pytest.raises(ValueError, match="JSON"):
             parse_json_response("this is not json at all", strict=True)

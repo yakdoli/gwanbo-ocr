@@ -532,6 +532,8 @@ def run_pipeline(
     markitdown_llm_api_key: str = "dummy",
     markitdown_llm_prompt: str | None = None,
     paddle_service_url: str | None = None,
+    paddle_preprocess: bool = False,
+    paddle_preprocess_max_chars: int = 4000,
     paddle_vl_service_url: str | None = None,
     paddle_vl_backend: str | None = None,
     paddle_vl_server_url: str | None = None,
@@ -596,6 +598,8 @@ def run_pipeline(
         preflight_vllm=preflight_vllm,
         preflight_timeout_s=preflight_timeout_s,
         limit=limit,
+        paddle_preprocess=paddle_preprocess,
+        paddle_preprocess_max_chars=paddle_preprocess_max_chars,
         gold_manifest_path=gold_manifest_path,
     )
     bench_score_summary = score_benchmark(run_dir=bench_run_dir, output_dir=bench_report_dir)

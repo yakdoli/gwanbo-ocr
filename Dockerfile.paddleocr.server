@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     libmupdf-dev \
-    libpdf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
@@ -18,8 +17,8 @@ COPY scripts ./scripts
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir -e ".[services]" \
     && python -m pip install --no-cache-dir \
-        "paddleocr[doc-parser]>=3.5,<3.6" \
-        "paddlepaddle>=3.2.1,<4"
+        "paddleocr[doc-parser]==3.3.3" \
+        "paddlepaddle==3.2.0"
 
 EXPOSE 8080
 

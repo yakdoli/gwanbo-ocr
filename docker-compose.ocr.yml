@@ -25,12 +25,23 @@ services:
 
   vllm-qwen:
     image: vllm/vllm-openai-rocm:latest
-    container_name: gwanbo-vllm-qwen
+    container_name: gwanbo-vllm
     ipc: host
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
     ports:
       - "127.0.0.1:8000:8000"
     environment:
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_ROCM_USE_AITER: "1"
+      VLLM_ROCM_USE_AITER_MOE: "1"
     volumes:
       - ${HF_HOME:-/root/.cache/huggingface}:/root/.cache/huggingface:rw
     command:
@@ -40,22 +51,74 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+      - --quantization
+      - fp8
       - --max-model-len
-      - "131072"
+      - "32768"
+      - --max-num-batched-tokens
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
       - --trust-remote-code
       - --disable-custom-all-reduce
       - --enforce-eager
     profiles:
       - vlm
 
+  vllm-test:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: gwanbo-vllm-test
+    ipc: host
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ports:
+      - "127.0.0.1:8100:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_ROCM_USE_AITER: "0"
+      VLLM_ROCM_USE_AITER_MOE: "0"
+      VLLM_USE_DEEP_GEMM: "0"
+    volumes:
+      - ${HF_HOME:-/root/.cache/huggingface}:/root/.cache/huggingface:rw
+    command:
+      - --model
+      - google/gemma-4-31B-it
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --max-model-len
+      - "32768"
+    profiles:
+      - vlm
+
   paddleocr-vl-vllm:
     image: vllm/vllm-openai-rocm:latest
-    container_name: gwanbo-paddleocr-vl-vllm
+    container_name: gwanbo-vllm-paddle-vl
     ipc: host
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
     ports:
       - "127.0.0.1:8118:8000"
     environment:
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_ROCM_USE_AITER: "1"
+      VLLM_ROCM_USE_AITER_MOE: "1"
     volumes:
       - ${HF_HOME:-/root/.cache/huggingface}:/root/.cache/huggingface:rw
     command:
@@ -67,6 +130,8 @@ services:
       - "8000"
       - --max-model-len
       - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
       - --trust-remote-code
     profiles:
       - paddle-vl
@@ -82,9 +147,12 @@ services:
     environment:
       PADDLEOCR_VL_REC_SERVER_URL: http://paddleocr-vl-vllm:8000/v1
       PADDLEOCR_VL_MODEL: PaddlePaddle/PaddleOCR-VL-1.5
+      DISABLE_MODEL_SOURCE_CHECK: "True"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     volumes:
       - /root/peti:/root/peti:ro
       - ./runs:/workspace/runs:rw
+      - paddleocr-models:/root/.paddlex:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -111,3 +179,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+volumes:
+  paddleocr-models:

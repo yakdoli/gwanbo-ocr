@@ -204,3 +204,64 @@ def test_render_manifest_records_bad_selected_pages_without_aborting(tmp_path: P
     assert summary["counts"]["errors"] == 1
     assert rows[0]["status"] == "error"
     assert rows[0]["error"].startswith("invalid_page_selection")
+
+
+def test_render_manifest_renders_and_resizes_selected_pages(tmp_path: Path, monkeypatch) -> None:
+    from gwanbo_ocr import render as render_module
+
+    class FakeImage:
+        def __init__(self, width: int, height: int) -> None:
+            self.width = width
+            self.height = height
+
+        def resize(self, size: tuple[int, int]) -> FakeImage:
+            return FakeImage(size[0], size[1])
+
+        def save(self, path: Path, format: str = "PNG") -> None:
+            Path(path).write_bytes(f"{format}:{self.width}x{self.height}".encode())
+
+    class FakeRenderedPage:
+        def __init__(self, page_number: int) -> None:
+            self.page_number = page_number
+            self.image = FakeImage(4000, 1000 if page_number == 1 else 1500)
+
+    def fake_render_pdf_page_result(_pdf_path: Path, *, page_number: int, dpi: int):
+        assert dpi == 200
+        return FakeRenderedPage(page_number)
+
+    monkeypatch.setattr(render_module, "render_pdf_page_result", fake_render_pdf_page_result)
+
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps(
+            {
+                "id": "doc-1",
+                "pdf_key": "doc-1",
+                "pdf_abs_path": str(tmp_path / "dummy.pdf"),
+                "selected_pages": [1, 2],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = render_module.render_manifest(
+        manifest_path=manifest,
+        output_dir=tmp_path / "images",
+        workers=1,
+        max_long_edge=1000,
+    )
+    manifest_rows = [
+        json.loads(line)
+        for line in (tmp_path / "images" / "manifest.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+
+    assert summary["counts"]["total_rows"] == 1
+    assert summary["counts"]["rendered_pages"] == 2
+    assert summary["counts"]["errors"] == 0
+    assert len(manifest_rows) == 2
+    assert all(row["status"] == "ok" for row in manifest_rows)
+    assert all(row["width"] == 1000 for row in manifest_rows)
+    assert all(row["image_sha256"] for row in manifest_rows)

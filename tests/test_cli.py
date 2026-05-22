@@ -160,12 +160,20 @@ def test_bench_run_forwards_preflight_options(tmp_path: Path, monkeypatch: Any) 
             str(tmp_path / "run"),
             "--preflight-timeout-s",
             "0.25",
+            "--vlm-max-tokens",
+            "1024",
+            "--paddle-preprocess",
+            "--paddle-preprocess-max-chars",
+            "1234",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert captured["preflight_vllm"] is True
     assert captured["preflight_timeout_s"] == 0.25
+    assert captured["paddle_preprocess"] is True
+    assert captured["paddle_preprocess_max_chars"] == 1234
+    assert captured["vlm_max_tokens"] == 1024
 
 
 def test_strategy_cluster_help() -> None:

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[pdf,dev]"
+
+      - name: Ruff lint
+        run: ruff check src tests scripts
+
+      - name: Ruff format check
+        run: ruff format --check src tests scripts
+
+      - name: Pyrefly
+        run: pyrefly check --summary=none
+
+      - name: Pytest
+        run: pytest -ra --tb=short --cov=src/gwanbo_ocr --cov-report=term-missing --cov-fail-under=70

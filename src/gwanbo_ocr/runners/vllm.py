@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 
 from gwanbo_ocr.prompts import (
     TRANSCRIPTION_JSON_SCHEMA,
+    TRANSCRIPTION_SYSTEM_PROMPT,
     build_transcription_messages,
 )
 from gwanbo_ocr.runners.base import (
@@ -32,7 +33,7 @@ class VllmChatRunner:
         temperature: float = 0.0,
         top_p: float | None = None,
         max_tokens: int | None = 4096,
-        response_format: Mapping[str, Any] | None = None,
+        response_format: Mapping[str, Any] | None = {"type": "json_object"},
         strict_json: bool = True,
         use_httpx: bool = False,
         extra_body: Mapping[str, Any] | None = None,
@@ -44,7 +45,7 @@ class VllmChatRunner:
         self.temperature = temperature
         self.top_p = top_p
         self.max_tokens = max_tokens
-        self.response_format = dict(response_format or {"type": "json_object"})
+        self.response_format = None if response_format is None else dict(response_format)
         self.strict_json = strict_json
         self.extra_body = dict(extra_body or {})
         self._client = client
@@ -65,6 +66,7 @@ class VllmChatRunner:
         language_hint: str | None = None,
         schema: Mapping[str, Any] | None = TRANSCRIPTION_JSON_SCHEMA,
         user_prompt: str | None = None,
+        system_prompt: str | None = TRANSCRIPTION_SYSTEM_PROMPT,
         image_mime_type: str | None = None,
         **request_overrides: Any,
     ) -> TranscriptionResult:
@@ -74,6 +76,7 @@ class VllmChatRunner:
             language_hint=language_hint,
             schema=schema,
             user_prompt=user_prompt,
+            system_prompt=system_prompt,
             image_mime_type=image_mime_type,
         )
         payload = self._build_payload(messages, request_overrides)
@@ -106,7 +109,7 @@ class VllmChatRunner:
             return httpx.Client(base_url=self.base_url, timeout=self.timeout)
 
         try:
-            from openai import OpenAI
+            from openai import OpenAI  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise RuntimeError(
                 "The openai package is required for VllmChatRunner unless "
@@ -173,10 +176,8 @@ def _is_openai_chat_client(client: Any) -> bool:
 
 
 def _chat_completions_url(base_url: str) -> str:
-    base = base_url.rstrip("/") + "/"
-    if base.endswith("/v1/"):
-        return urljoin(base, "chat/completions")
-    return urljoin(base, "v1/chat/completions")
+    """Return the chat completions endpoint for a /v1-prefixed base URL."""
+    return urljoin(base_url.rstrip("/"), "chat/completions")
 
 
 def _extract_chat_content(response: Any) -> str:
@@ -184,14 +185,24 @@ def _extract_chat_content(response: Any) -> str:
         choice = response["choices"][0]
         message = choice.get("message", choice)
         content = message.get("content", "")
-        return _content_to_text(content)
+        text = _content_to_text(content)
+        if text:
+            return text
+        reasoning = message.get("reasoning_content", "")
+        if reasoning:
+            return _content_to_text(reasoning)
 
     choices = getattr(response, "choices", None)
     if choices:
         choice = choices[0]
         message = getattr(choice, "message", choice)
         content = getattr(message, "content", "")
-        return _content_to_text(content)
+        text = _content_to_text(content)
+        if text:
+            return text
+        reasoning = getattr(message, "reasoning_content", "")
+        if reasoning:
+            return _content_to_text(reasoning)
 
     content = getattr(response, "content", None)
     if content is not None:

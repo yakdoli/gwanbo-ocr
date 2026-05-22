@@ -53,10 +53,8 @@ def preflight_openai_endpoint(
 
 
 def _models_endpoint(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/v1"):
-        return f"{normalized}/models"
-    return f"{normalized}/v1/models"
+    """Return the models list endpoint for a /v1-prefixed base URL."""
+    return f"{base_url.rstrip('/')}/models"
 
 
 def _read_json_response(response: Any, url: str) -> Mapping[str, Any]:

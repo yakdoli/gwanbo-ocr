@@ -459,6 +459,17 @@ def test_reference_text_propagates_to_record(tmp_path: Path, monkeypatch: Any) -
 
     class FakeResult:
         text = "ocr output"
+        raw_response = {
+            "id": "chatcmpl-test",
+            "model": "ONTHEIT/BizOnAI-OCR",
+            "object": "chat.completion",
+            "choices": [{"finish_reason": "length", "stop_reason": None}],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 22,
+                "total_tokens": 33,
+            },
+        }
 
         def to_dict(self) -> dict[str, str]:
             return {"text": self.text}
@@ -498,6 +509,17 @@ def test_gold_text_propagates_as_reference_text(tmp_path: Path, monkeypatch: Any
 
     class FakeResult:
         text = "ocr output"
+        raw_response = {
+            "id": "chatcmpl-test",
+            "model": "ONTHEIT/BizOnAI-OCR",
+            "object": "chat.completion",
+            "choices": [{"finish_reason": "length", "stop_reason": None}],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 22,
+                "total_tokens": 33,
+            },
+        }
 
         def to_dict(self) -> dict[str, str]:
             return {"text": self.text}
@@ -531,12 +553,187 @@ def test_gold_text_propagates_as_reference_text(tmp_path: Path, monkeypatch: Any
     assert record["reference_text"] == "gold expected"
 
 
+def test_vlm_max_tokens_is_passed_to_runner(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    captured: dict[str, Any] = {}
+
+    class FakeResult:
+        text = "ocr output"
+        raw_response = {
+            "id": "chatcmpl-test",
+            "model": "ONTHEIT/BizOnAI-OCR",
+            "object": "chat.completion",
+            "choices": [{"finish_reason": "length", "stop_reason": None}],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 22,
+                "total_tokens": 33,
+            },
+        }
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeRunner:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> FakeResult:
+            return FakeResult()
+
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeRunner)
+
+    record = _run_benchmark_task(
+        {"sample_id": "s1", "image_path": str(image), "page_number": 1},
+        runner_name="bizonai_ocr",
+        model_id="ONTHEIT/BizOnAI-OCR",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key="dummy",
+        enforce_strategy_routing=False,
+        paddle_service_url=None,
+        runner_config={
+            "timeout_seconds": 180,
+            "max_retries": 2,
+            "max_tokens": 1024,
+            "temperature": 0.2,
+            "top_p": 0.9,
+        },
+    )
+
+    assert record["status"] == "ok"
+    assert captured["max_tokens"] == 1024
+    assert captured["temperature"] == 0.2
+    assert captured["top_p"] == 0.9
+    assert record["finish_reason"] == "length"
+    assert record["prompt_tokens"] == 11
+    assert record["completion_tokens"] == 22
+    assert record["total_tokens"] == 33
+    assert record["response_metadata"]["id"] == "chatcmpl-test"
+
+
+def test_paddle_preprocess_context_is_added_to_vlm_prompt(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    captured: dict[str, Any] = {}
+
+    class FakePaddleResult:
+        text = "Paddle draft text"
+        backend = "paddleocr_service"
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text, "backend": self.backend}
+
+    class FakePaddle:
+        def __init__(self, base_url: str, **_kwargs: Any) -> None:
+            captured["paddle_base_url"] = base_url
+
+        def transcribe(
+            self, image_path: Path, *, page_number: int | None = None
+        ) -> FakePaddleResult:
+            captured["paddle_image_path"] = image_path
+            captured["paddle_page_number"] = page_number
+            return FakePaddleResult()
+
+    class FakeVlmResult:
+        text = "vlm output"
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeVlm:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **kwargs: Any) -> FakeVlmResult:
+            captured["user_prompt"] = kwargs["user_prompt"]
+            return FakeVlmResult()
+
+    import gwanbo_ocr.runners.paddle_service as paddle_service
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(paddle_service, "PaddleOcrServiceRunner", FakePaddle)
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeVlm)
+
+    record = _run_benchmark_task(
+        {"sample_id": "s1", "image_path": str(image), "page_number": 2},
+        runner_name="direct-model",
+        model_id="direct-model",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key="dummy",
+        enforce_strategy_routing=False,
+        paddle_service_url="http://paddle-service:8080",
+        paddle_preprocess=True,
+        paddle_preprocess_max_chars=4000,
+    )
+
+    assert record["status"] == "ok"
+    assert record["paddle_preprocess"]["status"] == "ok"
+    assert captured["paddle_base_url"] == "http://paddle-service:8080"
+    assert "PaddleOCR preliminary transcription follows" in captured["user_prompt"]
+    assert "Paddle draft text" in captured["user_prompt"]
+
+
+def test_paddle_preprocess_fails_open_to_vlm(tmp_path: Path, monkeypatch: Any) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    captured: dict[str, Any] = {}
+
+    class FailingPaddle:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("paddle down")
+
+    class FakeVlmResult:
+        text = "vlm output"
+
+        def to_dict(self) -> dict[str, str]:
+            return {"text": self.text}
+
+    class FakeVlm:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, *_args: Any, **kwargs: Any) -> FakeVlmResult:
+            captured["user_prompt"] = kwargs.get("user_prompt")
+            return FakeVlmResult()
+
+    import gwanbo_ocr.runners.paddle_service as paddle_service
+    import gwanbo_ocr.runners.vllm_chat as vllm_chat
+
+    monkeypatch.setattr(paddle_service, "PaddleOcrServiceRunner", FailingPaddle)
+    monkeypatch.setattr(vllm_chat, "VllmChatRunner", FakeVlm)
+
+    record = _run_benchmark_task(
+        {"sample_id": "s1", "image_path": str(image), "page_number": 1},
+        runner_name="direct-model",
+        model_id="direct-model",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key="dummy",
+        enforce_strategy_routing=False,
+        paddle_service_url="http://paddle-service:8080",
+        paddle_preprocess=True,
+    )
+
+    assert record["status"] == "ok"
+    assert record["paddle_preprocess"]["status"] == "error"
+    assert "paddle down" in record["paddle_preprocess"]["error"]
+    assert captured["user_prompt"] is None
+
+
 def test_merge_gold_references_fills_missing(tmp_path: Path) -> None:
     gold = tmp_path / "gold.jsonl"
     gold.write_text(
-        json.dumps({"sample_id": "s1", "reference_text": "ref one"}) + "\n"
-        + json.dumps({"sample_id": "s2", "gold_text": "ref two"}) + "\n"
-        + json.dumps({"sample_id": "s4", "reference_text": "gold overwrite attempt"}) + "\n",
+        json.dumps({"sample_id": "s1", "reference_text": "ref one"})
+        + "\n"
+        + json.dumps({"sample_id": "s2", "gold_text": "ref two"})
+        + "\n"
+        + json.dumps({"sample_id": "s4", "reference_text": "gold overwrite attempt"})
+        + "\n",
         encoding="utf-8",
     )
     tasks: list[dict[str, Any]] = [
@@ -561,12 +758,18 @@ vision_language_models:
     model: Qwen/Qwen3.6-35B-A3B-FP8
     timeout_seconds: 120
     max_retries: 2
+    max_tokens: 1024
+    temperature: 0.2
+    top_p: 0.9
 """,
         encoding="utf-8",
     )
     result = resolve_runner_config("qwen36_baseline", config_path=config)
     assert result["timeout_seconds"] == 120
     assert result["max_retries"] == 2
+    assert result["max_tokens"] == 1024
+    assert result["temperature"] == 0.2
+    assert result["top_p"] == 0.9
 
 
 def test_resolve_runner_config_returns_defaults_for_unknown(tmp_path: Path) -> None:
@@ -584,9 +787,11 @@ vision_language_models:
     result = resolve_runner_config("nonexistent_runner", config_path=config)
     assert result["timeout_seconds"] == 120
     assert result["max_retries"] == 2
+    assert result["max_tokens"] == 4096
 
 
 def test_resolve_runner_config_returns_defaults_when_no_file(tmp_path: Path) -> None:
     result = resolve_runner_config("any_runner", config_path=tmp_path / "missing.yaml")
     assert result["timeout_seconds"] == 120
     assert result["max_retries"] == 2
+    assert result["max_tokens"] == 4096

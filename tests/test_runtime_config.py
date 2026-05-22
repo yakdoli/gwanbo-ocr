@@ -40,3 +40,13 @@ def test_models_yaml_records_container_service_defaults() -> None:
     assert payload["services"]["markitdown_ocr_api"]["base_url"] == "http://127.0.0.1:8081"
     assert payload["services"]["paddleocr_api"]["base_url"] == "http://127.0.0.1:8082"
     assert payload["ocr"]["paddleocr_vl"]["vl_rec_server_url"] == "http://127.0.0.1:8118/v1"
+    lighton = payload["vision_language_models"]["lightonocr2_1b_lemonade_vllm"]
+    assert lighton["base_url"] == "http://127.0.0.1:13305/api/v1"
+    assert lighton["model"] == "user.LightOnOCR-2-1B-vLLM"
+    assert lighton["temperature"] == 0.2
+    assert lighton["top_p"] == 0.9
+    assert lighton["lemonade"]["recipe"] == "vllm"
+    assert lighton["lemonade"]["backend"] == "rocm"
+    assert lighton["lemonade"]["ctx_size"] == 16384
+    assert "--max-num-batched-tokens" in lighton["lemonade"]["vllm_args"]
+    assert "16384" in lighton["lemonade"]["vllm_args"]

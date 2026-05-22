@@ -137,7 +137,7 @@ tests/
 2. `bench/__init__.py` re-exports the public API so `from gwanbo_ocr.bench import run_benchmark` still works — but this is a real re-export, not a deprecated shim.
 3. Delete `peer_review.py` once `peers/` is complete and all tests pass.
 4. Delete the old `bench.py` once `bench/` package is complete and all tests pass.
-5. Each migration step: move → update imports → run `pytest` + `ruff check` + `mypy`.
+5. Each migration step: move → update imports → run `pytest` + `ruff check` + `pyrefly`.
 
 ---
 
@@ -148,7 +148,7 @@ tests/
 3. `strategy.py` — add `run_pipeline()`, thin out `cli.strategy_pipeline`
 4. `peers/` package — create package, split by method, update `peers/__init__.py`, update callers, delete `peer_review.py`
 5. Test restructure — split `test_bench.py` → `tests/bench/`, split `test_peer_review.py` → `tests/peers/`, add `tests/runners/test_preflight.py`
-6. Final verification — `pytest`, `ruff check src tests`, `mypy src`
+6. Final verification — `pytest`, `ruff check src tests`, `pyrefly src`
 
 ---
 
@@ -158,14 +158,14 @@ After each step:
 ```bash
 pytest
 ruff check src tests
-mypy src
+pyrefly src
 ```
 
 Full suite after all steps:
 ```bash
 pytest --tb=short -q
 ruff format --check src tests
-mypy src
+pyrefly src
 ```
 
-Acceptance: all existing tests pass, no ruff errors, no mypy errors. No behavior changes.
+Acceptance: all existing tests pass, no ruff errors, no pyrefly errors. No behavior changes.

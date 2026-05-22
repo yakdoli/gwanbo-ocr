@@ -7,7 +7,7 @@ from ._helpers import SAMPLE_CHARS_DEFAULT, _normalize, _skipped, _with_timeout
 
 _pdfplumber: Any
 try:
-    import pdfplumber as _pdfplumber  # type: ignore[import-not-found]
+    import pdfplumber as _pdfplumber  # type: ignore[import-not-found,no-redef]
 except ImportError:
     _pdfplumber = None
 

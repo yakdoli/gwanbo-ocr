@@ -300,6 +300,16 @@ def bench_run(
         help="Optional PaddleOCR API URL for ocr_paddle_simple routing.",
         envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
+    paddle_preprocess: bool = typer.Option(
+        False,
+        "--paddle-preprocess/--no-paddle-preprocess",
+        help="Run PaddleOCR first and inject its draft text into VLM page prompts.",
+    ),
+    paddle_preprocess_max_chars: int = typer.Option(
+        4000,
+        "--paddle-preprocess-max-chars",
+        help="Maximum PaddleOCR draft characters to include in each VLM prompt; 0 means full text.",
+    ),
     concurrency: int = typer.Option(4, help="Concurrent inference requests."),
     enforce_strategy_routing: bool = typer.Option(
         True,
@@ -316,6 +326,12 @@ def bench_run(
         "--preflight-timeout-s",
         help="Timeout in seconds for VLM endpoint preflight check.",
     ),
+    vlm_max_tokens: int | None = typer.Option(
+        None,
+        "--vlm-max-tokens",
+        help="Override VLM max output tokens per page request.",
+        envvar="GWANBO_VLM_MAX_TOKENS",
+    ),
     limit: int | None = typer.Option(None, help="Maximum page tasks to process."),
     gold_manifest: Path | None = typer.Option(
         None, "--gold-manifest", help="JSONL with sample_id→reference_text for scoring."
@@ -331,10 +347,13 @@ def bench_run(
         base_url=base_url,
         api_key=api_key,
         paddle_service_url=paddle_service_url,
+        paddle_preprocess=paddle_preprocess,
+        paddle_preprocess_max_chars=paddle_preprocess_max_chars,
         concurrency=concurrency,
         enforce_strategy_routing=enforce_strategy_routing,
         preflight_vllm=preflight_vllm,
         preflight_timeout_s=preflight_timeout_s,
+        vlm_max_tokens=vlm_max_tokens,
         limit=limit,
         gold_manifest_path=gold_manifest,
     )
@@ -479,6 +498,16 @@ def strategy_pipeline(
         help="Optional PaddleOCR API URL for classic OCR, e.g. http://127.0.0.1:8082.",
         envvar="GWANBO_PADDLEOCR_SERVICE_URL",
     ),
+    paddle_preprocess: bool = typer.Option(
+        False,
+        "--paddle-preprocess/--no-paddle-preprocess",
+        help="Run PaddleOCR before VLM bench tasks and inject its draft text into prompts.",
+    ),
+    paddle_preprocess_max_chars: int = typer.Option(
+        4000,
+        "--paddle-preprocess-max-chars",
+        help="Maximum PaddleOCR draft characters to include in each VLM prompt; 0 means full text.",
+    ),
     paddle_vl_service_url: str | None = typer.Option(
         None,
         "--paddle-vl-service-url",
@@ -538,6 +567,8 @@ def strategy_pipeline(
         markitdown_llm_api_key=markitdown_llm_api_key,
         markitdown_llm_prompt=markitdown_llm_prompt,
         paddle_service_url=paddle_service_url,
+        paddle_preprocess=paddle_preprocess,
+        paddle_preprocess_max_chars=paddle_preprocess_max_chars,
         paddle_vl_service_url=paddle_vl_service_url,
         paddle_vl_backend=paddle_vl_backend,
         paddle_vl_server_url=paddle_vl_server_url,

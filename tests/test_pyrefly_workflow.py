@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFY_SEQUENCE = [
     "ruff check src tests scripts",
     "ruff format --check src tests scripts",
-    ".venv/bin/mypy src",
     ".venv/bin/pyrefly check --summary=none",
     ".venv/bin/pytest -ra --tb=short",
 ]

@@ -5,7 +5,6 @@ WORKDIR /workspace
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libmupdf-dev \
-    libpdf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./

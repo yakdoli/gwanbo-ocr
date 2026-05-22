@@ -30,6 +30,9 @@ class VllmDockerConfig:
     max_model_len: int | None = None
     max_num_seqs: int | None = None
     dtype: str | None = "auto"
+    quantization: str | None = None
+    tokenizer: str | None = None
+    hf_config_path: str | None = None
     served_model_name: str | None = None
     trust_remote_code: bool = False
     enforce_eager: bool = False
@@ -140,6 +143,15 @@ def _build_vllm_server_args(config: VllmDockerConfig) -> list[str]:
 
     if config.dtype:
         args.extend(["--dtype", config.dtype])
+
+    if config.quantization:
+        args.extend(["--quantization", config.quantization])
+
+    if config.tokenizer:
+        args.extend(["--tokenizer", config.tokenizer])
+
+    if config.hf_config_path:
+        args.extend(["--hf-config-path", config.hf_config_path])
 
     if config.gpu_memory_utilization is not None:
         args.extend(["--gpu-memory-utilization", str(config.gpu_memory_utilization)])

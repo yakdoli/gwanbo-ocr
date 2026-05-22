@@ -13,6 +13,7 @@ from gwanbo_ocr.peers import (
     extract_markitdown,
     extract_markitdown_ocr_llm,
     extract_native_text,
+    extract_paddle_ocr,
     extract_paddle_ocr_vl,
     extract_pdfplumber,
     extract_vlm_ocr,
@@ -321,3 +322,182 @@ class TestExtractPaddleOcrVl:
         assert result["status"] == "partial"
         assert result["text_extractable"] is True
         assert result["text_chars"] > 0
+
+
+# ---------------------------------------------------------------------------
+# PaddleOCR (classic, non-VL)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPaddleOcr:
+    def test_renders_and_transcribes_with_service_url(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class FakePaddleOcrServiceRunner:
+            kwargs: dict[str, Any] = {}
+
+            def __init__(self, base_url: str, **kwargs: Any) -> None:
+                type(self).kwargs = {"base_url": base_url, **kwargs}
+
+            def transcribe(self, image: Path) -> TranscriptionResult:
+                return TranscriptionResult.from_payload(
+                    {"text": "PaddleOCR result"}, backend="paddleocr_service"
+                )
+
+        rendered = {
+            "status": "ok",
+            "page_count": 1,
+            "pages": [{"page_index": 0, "path": str(tmp_path / "page_001.png")}],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch(
+                "gwanbo_ocr.runners.paddle_service.PaddleOcrServiceRunner",
+                FakePaddleOcrServiceRunner,
+            ),
+        ):
+            result = extract_paddle_ocr(
+                pdf,
+                image_dir=tmp_path / "images",
+                service_url="http://127.0.0.1:8082",
+                lang="eng",
+                timeout_seconds=42,
+            )
+
+        assert result["status"] == "ok"
+        assert result["method"] == "PaddleOCR"
+        assert result["text_chars"] > 0
+        assert "PaddleOCR result" in result["sample_text"]
+        assert FakePaddleOcrServiceRunner.kwargs["base_url"] == "http://127.0.0.1:8082"
+        assert FakePaddleOcrServiceRunner.kwargs["lang"] == "eng"
+
+    def test_all_pages_fail_returns_error(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class FailingPaddleRunner:
+            def __init__(self, **_kwargs: Any) -> None:
+                pass
+
+            def transcribe(self, _image: Path) -> TranscriptionResult:
+                raise RuntimeError("ocr failed")
+
+        rendered = {
+            "status": "ok",
+            "page_count": 1,
+            "pages": [{"page_index": 0, "path": str(tmp_path / "page_001.png")}],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch("gwanbo_ocr.runners.paddle.PaddleOcrRunner", FailingPaddleRunner),
+        ):
+            result = extract_paddle_ocr(pdf, image_dir=tmp_path / "images", timeout_seconds=2)
+
+        assert result["status"] == "error"
+        assert "all PaddleOCR pages failed" in result["error"]
+
+    def test_partial_success_when_some_pages_fail(self, tmp_path: Path) -> None:
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class PartlyFailingRunner:
+            def __init__(self, **_kwargs: Any) -> None:
+                self.calls = 0
+
+            def transcribe(self, _image: Path) -> TranscriptionResult:
+                self.calls += 1
+                if self.calls == 2:
+                    raise RuntimeError("second page failed")
+                return TranscriptionResult.from_payload({"text": "PaddleOCR page 1"})
+
+        rendered = {
+            "status": "ok",
+            "page_count": 2,
+            "pages": [
+                {"page_index": 0, "path": str(tmp_path / "page_001.png")},
+                {"page_index": 1, "path": str(tmp_path / "page_002.png")},
+            ],
+        }
+        with (
+            patch("gwanbo_ocr.peers.paddle._render_pages", return_value=rendered),
+            patch("gwanbo_ocr.runners.paddle.PaddleOcrRunner", PartlyFailingRunner),
+        ):
+            result = extract_paddle_ocr(pdf, image_dir=tmp_path / "images", timeout_seconds=2)
+
+        assert result["status"] == "partial"
+        assert result["text_extractable"] is True
+
+
+# ---------------------------------------------------------------------------
+# VLM OCR per-page error handling
+# ---------------------------------------------------------------------------
+
+
+class TestExtractVlmOcrPerPageErrors:
+    def test_handles_mixed_page_results(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        runner = MagicMock()
+        runner.model = "test-vlm"
+        runner.transcribe.side_effect = [
+            TranscriptionResult.from_payload({"text": "page 1 ok"}, backend="vlm"),
+            RuntimeError("page 2 failed"),
+            TranscriptionResult.from_payload({"text": "page 3 ok"}, backend="vlm"),
+        ]
+
+        rendered = {
+            "status": "ok",
+            "page_count": 3,
+            "pages": [
+                {"page_index": 0, "path": str(tmp_path / "page_001.png")},
+                {"page_index": 1, "path": str(tmp_path / "page_002.png")},
+                {"page_index": 2, "path": str(tmp_path / "page_003.png")},
+            ],
+        }
+        with patch("gwanbo_ocr.peers.vlm._render_pages", return_value=rendered):
+            result = extract_vlm_ocr(
+                tmp_path / "doc.pdf",
+                image_dir=tmp_path / "images",
+                runner=runner,
+                max_pages=3,
+            )
+
+        assert result["status"] == "ok"
+        assert result["text_chars"] > 0
+        assert len(result["page_results"]) == 3
+        assert result["page_results"][0]["status"] == "ok"
+        assert result["page_results"][1]["status"] == "error"
+        assert result["page_results"][2]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Pdfplumber edge cases with page errors
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPdfplumberEdgeCases:
+    def test_handles_per_page_extraction_errors(self, tmp_path: Path) -> None:
+        try:
+            import pdfplumber  # noqa: F401
+        except ImportError:
+            pytest.skip("pdfplumber not installed")
+
+        pdf = _write_pdf(tmp_path / "doc.pdf")
+
+        class FakePage:
+            def extract_text(self) -> str:
+                raise RuntimeError("extraction failed")
+
+        class FakeDoc:
+            pages = [FakePage(), FakePage()]
+
+            def __enter__(self) -> FakeDoc:
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                pass
+
+        with patch("gwanbo_ocr.peers.pdfplumber._pdfplumber.open", return_value=FakeDoc()):
+            result = extract_pdfplumber(pdf, max_pages=2, timeout_seconds=2)
+
+        assert result["status"] == "ok"
+        assert result["text_chars"] == 0
+        assert result["page_error_count"] == 2

@@ -7,13 +7,13 @@ from ._helpers import SAMPLE_CHARS_DEFAULT, _normalize, _skipped, _with_timeout
 
 _MarkItDown: Any
 try:
-    from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found]
+    from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found,no-redef]
 except ImportError:
     _MarkItDown = None
 
 _OpenAI: Any
 try:
-    from openai import OpenAI as _OpenAI  # type: ignore[import-not-found]
+    from openai import OpenAI as _OpenAI  # type: ignore[import-not-found,no-redef]
 except ImportError:
     _OpenAI = None
 

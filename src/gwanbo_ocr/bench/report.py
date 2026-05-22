@@ -39,6 +39,9 @@ def summarize_throughput(records: Iterable[Any]) -> dict[str, Any]:
         int(row.get("bytes_processed") or row.get("size_bytes") or 0) for row in rows
     )
     worker_time_s = sum(durations)
+    prompt_tokens = sum(_token_count(row, "prompt_tokens") for row in rows)
+    completion_tokens = sum(_token_count(row, "completion_tokens") for row in rows)
+    total_tokens = sum(_token_count(row, "total_tokens") for row in rows)
 
     return {
         "documents": total,
@@ -52,6 +55,11 @@ def summarize_throughput(records: Iterable[Any]) -> dict[str, Any]:
         "pages_per_s": _rate(pages, elapsed_s),
         "mb_per_s": _rate(bytes_processed / 1_000_000, elapsed_s),
         "worker_pages_per_s": _rate(pages, worker_time_s),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "completion_tokens_per_s": _rate(completion_tokens, elapsed_s),
+        "total_tokens_per_s": _rate(total_tokens, elapsed_s),
         "latency_s": {
             "min": min(durations) if durations else 0.0,
             "p50": percentile(durations, 50),
@@ -60,6 +68,7 @@ def summarize_throughput(records: Iterable[Any]) -> dict[str, Any]:
         },
         "by_status": _count_by(rows, "status"),
         "by_engine": _count_by(rows, "engine"),
+        "by_finish_reason": _count_by(rows, "finish_reason"),
     }
 
 
@@ -167,6 +176,21 @@ def _count_by(rows: Iterable[Mapping[str, Any]], field: str) -> dict[str, int]:
             continue
         counts[value] = counts.get(value, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def _token_count(row: Mapping[str, Any], field: str) -> int:
+    direct = row.get(field)
+    if direct is not None:
+        return int(direct)
+    metadata = row.get("response_metadata")
+    if isinstance(metadata, Mapping):
+        value = metadata.get(field)
+        if value is not None:
+            return int(value)
+        usage = metadata.get("usage")
+        if isinstance(usage, Mapping) and usage.get(field) is not None:
+            return int(usage[field])
+    return 0
 
 
 def _fmt(value: Any) -> str:

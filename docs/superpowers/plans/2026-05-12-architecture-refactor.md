@@ -8,7 +8,7 @@
 
 **Architecture:** Each unit owns one responsibility and communicates through clear import boundaries. No backward-compat shims — all callers updated directly. Tests restructured to mirror new module layout.
 
-**Tech Stack:** Python 3.12, Typer, pytest, ruff, mypy
+**Tech Stack:** Python 3.12, Typer, pytest, ruff, pyrefly
 
 ---
 
@@ -2302,7 +2302,7 @@ Expected: all tests pass.
 
 ```bash
 ruff check src tests
-mypy src
+pyrefly check --summary=none
 ```
 Expected: no errors.
 
@@ -2329,10 +2329,10 @@ ruff check src tests
 ruff format --check src tests
 
 # Types
-mypy src
+pyrefly check --summary=none
 ```
 
-Expected: all tests green, no ruff errors, no mypy errors. No behavior changes.
+Expected: all tests green, no ruff errors, no pyrefly errors. No behavior changes.
 
 Final module structure check:
 ```bash

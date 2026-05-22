@@ -37,7 +37,6 @@ Run in this order:
 ```bash
 ruff check src tests scripts
 ruff format --check src tests scripts
-.venv/bin/mypy src
 .venv/bin/pyrefly check --summary=none
 .venv/bin/pytest -ra --tb=short
 ```

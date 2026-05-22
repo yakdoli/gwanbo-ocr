@@ -17,13 +17,13 @@ from gwanbo_ocr.services import MarkItDownServiceClient
 
 _MarkItDown: Any
 try:
-    from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found]
+    from markitdown import MarkItDown as _MarkItDown  # type: ignore[import-not-found,no-redef]
 except ImportError:  # pragma: no cover - optional dependency
     _MarkItDown = None
 
 _OpenAI: Any
 try:
-    from openai import OpenAI as _OpenAI  # type: ignore[import-not-found]
+    from openai import OpenAI as _OpenAI  # type: ignore[import-not-found,no-redef]
 except ImportError:  # pragma: no cover - optional dependency
     _OpenAI = None
 
