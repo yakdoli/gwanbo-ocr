@@ -21,6 +21,11 @@ dist/
 outputs/
 artifacts/
 runs/
+data/
+kworker_u8
+*.db
+*.parquet
+*.deb
 
 # OpenCode auto-installed dependencies
 .opencode/node_modules/

@@ -1,9 +1,0 @@
-{"code": "REAL_ESTATE", "name_kr": "부동산", "name_en": "Real Estate"}
-{"code": "LISTED_STOCK", "name_kr": "상장주식", "name_en": "Listed Stock"}
-{"code": "UNLISTED_STOCK", "name_kr": "비상장주식", "name_en": "Unlisted Stock"}
-{"code": "BOND", "name_kr": "채권", "name_en": "Bond"}
-{"code": "CASH_DEPOSIT", "name_kr": "예금", "name_en": "Cash/Deposit"}
-{"code": "MEMBERSHIP", "name_kr": "회원권", "name_en": "Membership"}
-{"code": "VEHICLE", "name_kr": "자동차", "name_en": "Vehicle"}
-{"code": "GOLD", "name_kr": "금", "name_en": "Gold"}
-{"code": "OTHER", "name_kr": "기타", "name_en": "Other"}
