@@ -1,0 +1,11 @@
+{"code": "DT01", "name_kr": "법률", "name_en": "Act", "hierarchy": 1, "issuing_body": "국회"}
+{"code": "DT02", "name_kr": "대통령령", "name_en": "Presidential Decree", "hierarchy": 2, "issuing_body": "대통령"}
+{"code": "DT03", "name_kr": "국무총리령", "name_en": "Prime Ministerial Decree", "hierarchy": 3, "issuing_body": "국무총리"}
+{"code": "DT04", "name_kr": "부령", "name_en": "Ministerial Decree", "hierarchy": 4, "issuing_body": "각 부처"}
+{"code": "DT05", "name_kr": "고시", "name_en": "Public Notification", "hierarchy": 5, "issuing_body": "각급 행정기관"}
+{"code": "DT06", "name_kr": "공고", "name_en": "Public Announcement", "hierarchy": 5, "issuing_body": "각급 행정기관"}
+{"code": "DT07", "name_kr": "훈령", "name_en": "Directive", "hierarchy": 6, "issuing_body": "상급기관"}
+{"code": "DT08", "name_kr": "예규", "name_en": "Established Rule", "hierarchy": 6, "issuing_body": "각급 행정기관"}
+{"code": "DT09", "name_kr": "지침", "name_en": "Guideline", "hierarchy": 7, "issuing_body": "각급 행정기관"}
+{"code": "DT10", "name_kr": "시행령", "name_en": "Enforcement Decree", "hierarchy": 3, "issuing_body": "대통령"}
+{"code": "DT11", "name_kr": "시행규칙", "name_en": "Enforcement Rule", "hierarchy": 4, "issuing_body": "각 부처"}

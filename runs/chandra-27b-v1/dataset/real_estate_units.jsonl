@@ -1,0 +1,3 @@
+{"code": "M2", "name_kr": "㎡", "name_en": "Square Meter", "to_m2": null}
+{"code": "PYEONG", "name_kr": "평", "name_en": "Pyeong", "to_m2": 3.305785}
+{"code": "HA", "name_kr": "ha", "name_en": "Hectare", "to_m2": 10000.0}

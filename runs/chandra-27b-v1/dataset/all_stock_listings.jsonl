@@ -1,0 +1,81 @@
+{"ticker": "005930", "company_name_kr": "삼성전자", "company_name_en": "Samsung Electronics", "market": "KOSPI", "sector": "전기전자", "listed_date": "1975-06-11", "delisted_date": null, "face_value": 100}
+{"ticker": "000660", "company_name_kr": "SK하이닉스", "company_name_en": "SK Hynix", "market": "KOSPI", "sector": "전기전자", "listed_date": "1996-12-26", "delisted_date": null, "face_value": 5000}
+{"ticker": "005380", "company_name_kr": "현대자동차", "company_name_en": "Hyundai Motor", "market": "KOSPI", "sector": "운수장비", "listed_date": "1974-06-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "000270", "company_name_kr": "기아", "company_name_en": "Kia Corp", "market": "KOSPI", "sector": "운수장비", "listed_date": "1973-07-20", "delisted_date": null, "face_value": 5000}
+{"ticker": "005490", "company_name_kr": "POSCO홀딩스", "company_name_en": "POSCO Holdings", "market": "KOSPI", "sector": "철강금속", "listed_date": "1988-06-10", "delisted_date": null, "face_value": 5000}
+{"ticker": "003490", "company_name_kr": "대한항공", "company_name_en": "Korean Air", "market": "KOSPI", "sector": "운수창고", "listed_date": "1966-03-10", "delisted_date": null, "face_value": 5000}
+{"ticker": "035420", "company_name_kr": "NAVER", "company_name_en": "NAVER Corp", "market": "KOSPI", "sector": "서비스업", "listed_date": "2008-11-28", "delisted_date": null, "face_value": 500}
+{"ticker": "035720", "company_name_kr": "카카오", "company_name_en": "Kakao Corp", "market": "KOSPI", "sector": "서비스업", "listed_date": "2017-07-10", "delisted_date": null, "face_value": 500}
+{"ticker": "051910", "company_name_kr": "LG화학", "company_name_en": "LG Chem", "market": "KOSPI", "sector": "화학", "listed_date": "2001-04-25", "delisted_date": null, "face_value": 5000}
+{"ticker": "068270", "company_name_kr": "셀트리온", "company_name_en": "Celltrion", "market": "KOSPI", "sector": "의약품", "listed_date": "2008-09-10", "delisted_date": null, "face_value": 500}
+{"ticker": "105560", "company_name_kr": "KB금융", "company_name_en": "KB Financial Group", "market": "KOSPI", "sector": "금융업", "listed_date": "2001-11-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "032830", "company_name_kr": "삼성생명", "company_name_en": "Samsung Life Insurance", "market": "KOSPI", "sector": "금융업", "listed_date": "2010-05-12", "delisted_date": null, "face_value": 500}
+{"ticker": "000810", "company_name_kr": "삼성화재", "company_name_en": "Samsung Fire", "market": "KOSPI", "sector": "금융업", "listed_date": "1975-12-23", "delisted_date": null, "face_value": 500}
+{"ticker": "016360", "company_name_kr": "삼성증권", "company_name_en": "Samsung Securities", "market": "KOSPI", "sector": "금융업", "listed_date": "1988-12-12", "delisted_date": null, "face_value": 5000}
+{"ticker": "071050", "company_name_kr": "한국금융지주", "company_name_en": "Korea Investment Holdings", "market": "KOSPI", "sector": "금융업", "listed_date": "2004-12-23", "delisted_date": null, "face_value": 5000}
+{"ticker": "005940", "company_name_kr": "NH투자증권", "company_name_en": "NH Investment", "market": "KOSPI", "sector": "금융업", "listed_date": "2008-03-03", "delisted_date": null, "face_value": 5000}
+{"ticker": "006800", "company_name_kr": "미래에셋증권", "company_name_en": "Mirae Asset Securities", "market": "KOSPI", "sector": "금융업", "listed_date": "2000-01-04", "delisted_date": null, "face_value": 5000}
+{"ticker": "042670", "company_name_kr": "두산에너빌리티", "company_name_en": "Doosan Enerbility", "market": "KOSPI", "sector": "기계", "listed_date": "2000-03-15", "delisted_date": null, "face_value": 5000}
+{"ticker": "034730", "company_name_kr": "SK", "company_name_en": "SK Holdings", "market": "KOSPI", "sector": "지주회사", "listed_date": "1979-07-02", "delisted_date": null, "face_value": 5000}
+{"ticker": "003550", "company_name_kr": "LG", "company_name_en": "LG Corp", "market": "KOSPI", "sector": "지주회사", "listed_date": "1976-02-02", "delisted_date": null, "face_value": 5000}
+{"ticker": "012330", "company_name_kr": "현대모비스", "company_name_en": "Hyundai Mobis", "market": "KOSPI", "sector": "운수장비", "listed_date": "1977-06-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "036570", "company_name_kr": "엔씨소프트", "company_name_en": "NCsoft", "market": "KOSPI", "sector": "서비스업", "listed_date": "2000-07-21", "delisted_date": null, "face_value": 500}
+{"ticker": "009150", "company_name_kr": "삼성전기", "company_name_en": "Samsung Electro-Mechanics", "market": "KOSPI", "sector": "전기전자", "listed_date": "1979-02-27", "delisted_date": null, "face_value": 5000}
+{"ticker": "030200", "company_name_kr": "KT", "company_name_en": "KT Corp", "market": "KOSPI", "sector": "통신업", "listed_date": "1998-12-23", "delisted_date": null, "face_value": 5000}
+{"ticker": "017670", "company_name_kr": "SK텔레콤", "company_name_en": "SK Telecom", "market": "KOSPI", "sector": "통신업", "listed_date": "1989-10-07", "delisted_date": null, "face_value": 500}
+{"ticker": "032640", "company_name_kr": "LG유플러스", "company_name_en": "LG Uplus", "market": "KOSPI", "sector": "통신업", "listed_date": "2000-07-04", "delisted_date": null, "face_value": 5000}
+{"ticker": "018260", "company_name_kr": "삼성에스디에스", "company_name_en": "Samsung SDS", "market": "KOSPI", "sector": "서비스업", "listed_date": "1999-11-05", "delisted_date": null, "face_value": 500}
+{"ticker": "028260", "company_name_kr": "삼성물산", "company_name_en": "Samsung C&T", "market": "KOSPI", "sector": "건설업", "listed_date": "1975-06-11", "delisted_date": null, "face_value": 5000}
+{"ticker": "011170", "company_name_kr": "롯데케미칼", "company_name_en": "Lotte Chemical", "market": "KOSPI", "sector": "화학", "listed_date": "1976-06-30", "delisted_date": null, "face_value": 5000}
+{"ticker": "096770", "company_name_kr": "SK이노베이션", "company_name_en": "SK Innovation", "market": "KOSPI", "sector": "화학", "listed_date": "2007-01-04", "delisted_date": null, "face_value": 5000}
+{"ticker": "010950", "company_name_kr": "S-Oil", "company_name_en": "S-Oil Corp", "market": "KOSPI", "sector": "화학", "listed_date": "1987-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "006400", "company_name_kr": "삼성SDI", "company_name_en": "Samsung SDI", "market": "KOSPI", "sector": "전기전자", "listed_date": "1979-02-27", "delisted_date": null, "face_value": 5000}
+{"ticker": "015760", "company_name_kr": "한국전력", "company_name_en": "KEPCO", "market": "KOSPI", "sector": "전기가스", "listed_date": "1989-08-10", "delisted_date": null, "face_value": 5000}
+{"ticker": "033780", "company_name_kr": "KT&G", "company_name_en": "KT&G Corp", "market": "KOSPI", "sector": "담배", "listed_date": "1999-10-08", "delisted_date": null, "face_value": 5000}
+{"ticker": "000100", "company_name_kr": "유한양행", "company_name_en": "Yuhan Corp", "market": "KOSPI", "sector": "의약품", "listed_date": "1973-06-20", "delisted_date": null, "face_value": 5000}
+{"ticker": "090430", "company_name_kr": "아모레퍼시픽", "company_name_en": "Amorepacific", "market": "KOSPI", "sector": "화학", "listed_date": "1973-08-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "066570", "company_name_kr": "LG전자", "company_name_en": "LG Electronics", "market": "KOSPI", "sector": "전기전자", "listed_date": "1970-02-03", "delisted_date": null, "face_value": 5000}
+{"ticker": "034220", "company_name_kr": "LG디스플레이", "company_name_en": "LG Display", "market": "KOSPI", "sector": "전기전자", "listed_date": "2004-07-23", "delisted_date": null, "face_value": 5000}
+{"ticker": "373220", "company_name_kr": "LG에너지솔루션", "company_name_en": "LG Energy Solution", "market": "KOSPI", "sector": "전기전자", "listed_date": "2022-01-27", "delisted_date": null, "face_value": 5000}
+{"ticker": "005830", "company_name_kr": "DB손해보험", "company_name_en": "DB Insurance", "market": "KOSPI", "sector": "금융업", "listed_date": "1973-06-21", "delisted_date": null, "face_value": 500}
+{"ticker": "086790", "company_name_kr": "하나금융지주", "company_name_en": "Hana Financial Group", "market": "KOSPI", "sector": "금융업", "listed_date": "2005-12-12", "delisted_date": null, "face_value": 5000}
+{"ticker": "316140", "company_name_kr": "우리금융지주", "company_name_en": "Woori Financial Group", "market": "KOSPI", "sector": "금융업", "listed_date": "2019-02-13", "delisted_date": null, "face_value": 5000}
+{"ticker": "138930", "company_name_kr": "BNK금융지주", "company_name_en": "BNK Financial Group", "market": "KOSPI", "sector": "금융업", "listed_date": "2011-03-30", "delisted_date": null, "face_value": 5000}
+{"ticker": "004020", "company_name_kr": "현대제철", "company_name_en": "Hyundai Steel", "market": "KOSPI", "sector": "철강금속", "listed_date": "1987-10-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "009540", "company_name_kr": "한국조선해양", "company_name_en": "Korea Shipbuilding", "market": "KOSPI", "sector": "운수장비", "listed_date": "2000-01-04", "delisted_date": null, "face_value": 5000}
+{"ticker": "010620", "company_name_kr": "현대미포조선", "company_name_en": "Hyundai Mipo Dockyard", "market": "KOSPI", "sector": "운수장비", "listed_date": "1984-02-11", "delisted_date": null, "face_value": 5000}
+{"ticker": "036460", "company_name_kr": "한국가스공사", "company_name_en": "KOGAS", "market": "KOSPI", "sector": "전기가스", "listed_date": "1999-12-15", "delisted_date": null, "face_value": 5000}
+{"ticker": "001040", "company_name_kr": "CJ", "company_name_en": "CJ Corp", "market": "KOSPI", "sector": "지주회사", "listed_date": "1973-08-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "097950", "company_name_kr": "CJ제일제당", "company_name_en": "CJ CheilJedang", "market": "KOSPI", "sector": "음식료업", "listed_date": "2007-09-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "271560", "company_name_kr": "오리온", "company_name_en": "Orion Corp", "market": "KOSPI", "sector": "음식료업", "listed_date": "2017-07-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "004370", "company_name_kr": "농심", "company_name_en": "Nongshim", "market": "KOSPI", "sector": "음식료업", "listed_date": "1976-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "005300", "company_name_kr": "롯데칠성", "company_name_en": "Lotte Chilsung", "market": "KOSPI", "sector": "음식료업", "listed_date": "1976-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "007310", "company_name_kr": "오뚜기", "company_name_en": "Ottogi", "market": "KOSPI", "sector": "음식료업", "listed_date": "1989-08-08", "delisted_date": null, "face_value": 5000}
+{"ticker": "005180", "company_name_kr": "빙그레", "company_name_en": "Binggrae", "market": "KOSPI", "sector": "음식료업", "listed_date": "1976-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "021240", "company_name_kr": "코웨이", "company_name_en": "Coway", "market": "KOSPI", "sector": "전기전자", "listed_date": "2001-05-18", "delisted_date": null, "face_value": 5000}
+{"ticker": "023530", "company_name_kr": "롯데쇼핑", "company_name_en": "Lotte Shopping", "market": "KOSPI", "sector": "유통업", "listed_date": "2006-02-09", "delisted_date": null, "face_value": 5000}
+{"ticker": "139480", "company_name_kr": "이마트", "company_name_en": "E-Mart", "market": "KOSPI", "sector": "유통업", "listed_date": "2011-06-10", "delisted_date": null, "face_value": 5000}
+{"ticker": "282330", "company_name_kr": "BGF리테일", "company_name_en": "BGF Retail", "market": "KOSPI", "sector": "유통업", "listed_date": "2014-05-23", "delisted_date": null, "face_value": 500}
+{"ticker": "035250", "company_name_kr": "강원랜드", "company_name_en": "Kangwon Land", "market": "KOSPI", "sector": "서비스업", "listed_date": "2003-09-04", "delisted_date": null, "face_value": 500}
+{"ticker": "078930", "company_name_kr": "GS", "company_name_en": "GS Holdings", "market": "KOSPI", "sector": "지주회사", "listed_date": "2004-11-05", "delisted_date": null, "face_value": 5000}
+{"ticker": "010130", "company_name_kr": "고려아연", "company_name_en": "Korea Zinc", "market": "KOSPI", "sector": "철강금속", "listed_date": "1990-07-10", "delisted_date": null, "face_value": 5000}
+{"ticker": "005250", "company_name_kr": "녹십자", "company_name_en": "GC Biopharma", "market": "KOSPI", "sector": "의약품", "listed_date": "1989-08-01", "delisted_date": null, "face_value": 5000}
+{"ticker": "011780", "company_name_kr": "금호석유화학", "company_name_en": "Kumho Petrochemical", "market": "KOSPI", "sector": "화학", "listed_date": "1976-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "051900", "company_name_kr": "LG생활건강", "company_name_en": "LG H&H", "market": "KOSPI", "sector": "화학", "listed_date": "2001-04-25", "delisted_date": null, "face_value": 5000}
+{"ticker": "052690", "company_name_kr": "한전KPS", "company_name_en": "KEPCO KPS", "market": "KOSPI", "sector": "서비스업", "listed_date": "2007-12-14", "delisted_date": null, "face_value": 5000}
+{"ticker": "064350", "company_name_kr": "현대로템", "company_name_en": "Hyundai Rotem", "market": "KOSPI", "sector": "운수장비", "listed_date": "2013-10-30", "delisted_date": null, "face_value": 5000}
+{"ticker": "088350", "company_name_kr": "한화생명", "company_name_en": "Hanwha Life", "market": "KOSPI", "sector": "금융업", "listed_date": "2010-03-17", "delisted_date": null, "face_value": 5000}
+{"ticker": "251270", "company_name_kr": "넷마블", "company_name_en": "Netmarble", "market": "KOSPI", "sector": "서비스업", "listed_date": "2017-05-12", "delisted_date": null, "face_value": 500}
+{"ticker": "012750", "company_name_kr": "에스원", "company_name_en": "S1 Corp", "market": "KOSPI", "sector": "서비스업", "listed_date": "1996-12-04", "delisted_date": null, "face_value": 5000}
+{"ticker": "002380", "company_name_kr": "KCC", "company_name_en": "KCC Corp", "market": "KOSPI", "sector": "화학", "listed_date": "1976-12-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "028050", "company_name_kr": "삼성엔지니어링", "company_name_en": "Samsung Engineering", "market": "KOSPI", "sector": "건설업", "listed_date": "1997-11-28", "delisted_date": null, "face_value": 5000}
+{"ticker": "047050", "company_name_kr": "포스코인터내셔널", "company_name_en": "POSCO International", "market": "KOSPI", "sector": "도매업", "listed_date": "2001-07-03", "delisted_date": null, "face_value": 500}
+{"ticker": "096530", "company_name_kr": "씨젠", "company_name_en": "Seegene", "market": "KOSPI", "sector": "의약품", "listed_date": "2010-12-17", "delisted_date": null, "face_value": 500}
+{"ticker": "247540", "company_name_kr": "에코프로비엠", "company_name_en": "Ecopro BM", "market": "KOSDAQ", "sector": "화학", "listed_date": "2019-03-21", "delisted_date": null, "face_value": 500}
+{"ticker": "086520", "company_name_kr": "에코프로", "company_name_en": "Ecopro", "market": "KOSDAQ", "sector": "화학", "listed_date": "2007-07-06", "delisted_date": null, "face_value": 500}
+{"ticker": "196170", "company_name_kr": "알테오젠", "company_name_en": "Alteogen", "market": "KOSDAQ", "sector": "의약품", "listed_date": "2015-10-22", "delisted_date": null, "face_value": 500}
+{"ticker": "058470", "company_name_kr": "리노공업", "company_name_en": "Leeno Industrial", "market": "KOSDAQ", "sector": "전기전자", "listed_date": "2002-12-26", "delisted_date": null, "face_value": 500}
+{"ticker": "263750", "company_name_kr": "펄어비스", "company_name_en": "Pearl Abyss", "market": "KOSDAQ", "sector": "서비스업", "listed_date": "2017-09-14", "delisted_date": null, "face_value": 500}
+{"ticker": "278280", "company_name_kr": "천보", "company_name_en": "Chunbo", "market": "KOSDAQ", "sector": "화학", "listed_date": "2019-05-22", "delisted_date": null, "face_value": 500}
+{"ticker": "042700", "company_name_kr": "한미반도체", "company_name_en": "Hanmi Semiconductor", "market": "KOSPI", "sector": "전기전자", "listed_date": "2001-07-18", "delisted_date": null, "face_value": 500}
+{"ticker": "098460", "company_name_kr": "고영", "company_name_en": "Koh Young Technology", "market": "KOSPI", "sector": "의료정밀", "listed_date": "2011-06-09", "delisted_date": null, "face_value": 500}

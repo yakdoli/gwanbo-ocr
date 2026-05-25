@@ -1,0 +1,5 @@
+{"code": "KOSPI", "name_kr": "유가증권시장", "name_en": "KOSPI Market", "established": "1956-03-03"}
+{"code": "KOSDAQ", "name_kr": "코스닥시장", "name_en": "KOSDAQ Market", "established": "1996-07-01"}
+{"code": "KONEX", "name_kr": "코넥스시장", "name_en": "KONEX Market", "established": "2013-07-01"}
+{"code": "OTC", "name_kr": "장외시장", "name_en": "OTC Market", "established": null}
+{"code": "NON_LISTED", "name_kr": "비상장", "name_en": "Unlisted", "established": null}
