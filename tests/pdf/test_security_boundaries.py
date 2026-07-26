@@ -15,7 +15,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 if "pymupdf" not in sys.modules:
-    sys.modules["pymupdf"] = types.ModuleType("pymupdf")
+    try:
+        import pymupdf  # noqa: F401
+    except ModuleNotFoundError:
+        sys.modules["pymupdf"] = types.ModuleType("pymupdf")
 
 from gwanbo_ocr.pdf.classification import classify_manifest
 from gwanbo_ocr.pdf.content import PdfResourceLimitError, inspect_pdf_content
