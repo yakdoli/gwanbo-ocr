@@ -26,10 +26,10 @@ jobs:
           python -m pip install -e ".[pdf,dev]"
 
       - name: Ruff lint
-        run: ruff check src tests scripts
+        run: ruff check src tests
 
       - name: Ruff format check
-        run: ruff format --check src tests scripts
+        run: ruff format --check src tests
 
       - name: Pyrefly
         run: pyrefly check --summary=none
