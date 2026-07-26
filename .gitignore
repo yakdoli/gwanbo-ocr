@@ -31,3 +31,7 @@ kworker_u8
 .opencode/node_modules/
 .opencode/package.json
 .opencode/package-lock.json
+.omo/
+.tmp/
+wiki_vault/
+uv.lock
